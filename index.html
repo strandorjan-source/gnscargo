@@ -6,7 +6,7 @@
   <title>GNS Cargo Ordre</title>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    *{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#122033;font-family:Arial,Helvetica,sans-serif}.hidden{display:none!important}.topbar{height:78px;background:#071b31;color:white;padding:0 5vw;display:flex;align-items:center;justify-content:space-between}.brand{font-size:24px;font-weight:900;letter-spacing:1px}.brand span{color:#51a7e8}.subtitle{font-size:12px;color:#9db1c7;margin-top:3px}.btn{border:0;border-radius:9px;padding:11px 16px;font-weight:700;cursor:pointer}.primary{background:#1976c9;color:white}.secondary{background:white;border:1px solid #d4dde7;color:#22354a}.hero{background:linear-gradient(120deg,#0b2947,#123f68);color:white;padding:40px 5vw;display:flex;justify-content:space-between;gap:24px;align-items:end}.eyebrow{font-size:11px;letter-spacing:2px;color:#73bdf2;font-weight:800}.hero h1{font-size:38px;margin:5px 0}.hero p{color:#c6d6e5;margin:0}.stats{display:flex;gap:12px}.stat{min-width:110px;background:#ffffff12;border:1px solid #ffffff1d;border-radius:12px;padding:16px}.stat b{display:block;font-size:21px}.stat span{font-size:12px;color:#b8cce0}.panel,.auth{margin:24px 5vw;background:white;border:1px solid #e1e7ee;border-radius:14px;padding:24px;box-shadow:0 5px 20px #1b385508}.auth{max-width:460px;margin:60px auto}.auth h1{margin-top:0}.muted{color:#718096;font-size:14px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;color:#526174}input,textarea{border:1px solid #d7dfe8;border-radius:8px;padding:10px 11px;background:#fbfcfe;font:inherit}textarea{min-height:82px}.notice{margin:18px 0;background:#e8f3ff;border:1px solid #b7d8f5;padding:13px 16px;border-radius:9px;color:#15598e}.error{background:#fff0f0;border-color:#efb6b6;color:#9b2525}.panelHead{display:flex;align-items:start;justify-content:space-between;gap:12px}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:14px}th{text-align:left;color:#718096;font-size:11px;text-transform:uppercase;padding:11px;border-bottom:1px solid #e6ebf0}td{padding:14px 11px;border-bottom:1px solid #eef2f5}.status{background:#e8f3ff;color:#1767a3;border-radius:20px;padding:5px 9px;font-size:11px;font-weight:700}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.loginRow{display:grid;gap:12px}.small{font-size:12px;color:#718096}@media(max-width:850px){.hero{flex-direction:column;align-items:start}.grid{grid-template-columns:1fr 1fr}.stats{width:100%;overflow:auto}}@media(max-width:560px){.grid{grid-template-columns:1fr}.hero,.panel{margin-left:0;margin-right:0}.panel{border-radius:0}.hero{padding:28px 18px}.topbar{padding:0 18px}}
+    *{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#122033;font-family:Arial,Helvetica,sans-serif}.hidden{display:none!important}.topbar{height:78px;background:#071b31;color:white;padding:0 5vw;display:flex;align-items:center;justify-content:space-between}.brand{font-size:24px;font-weight:900;letter-spacing:1px}.brand span{color:#51a7e8}.subtitle{font-size:12px;color:#9db1c7;margin-top:3px}.btn{border:0;border-radius:9px;padding:11px 16px;font-weight:700;cursor:pointer}.primary{background:#1976c9;color:white}.secondary{background:white;border:1px solid #d4dde7;color:#22354a}.hero{background:linear-gradient(120deg,#0b2947,#123f68);color:white;padding:40px 5vw;display:flex;justify-content:space-between;gap:24px;align-items:end}.eyebrow{font-size:11px;letter-spacing:2px;color:#73bdf2;font-weight:800}.hero h1{font-size:38px;margin:5px 0}.hero p{color:#c6d6e5;margin:0}.stats{display:flex;gap:12px}.stat{min-width:110px;background:#ffffff12;border:1px solid #ffffff1d;border-radius:12px;padding:16px}.stat b{display:block;font-size:21px}.stat span{font-size:12px;color:#b8cce0}.panel,.auth{margin:24px 5vw;background:white;border:1px solid #e1e7ee;border-radius:14px;padding:24px;box-shadow:0 5px 20px #1b385508}.auth{max-width:460px;margin:60px auto}.auth h1{margin-top:0}.muted{color:#718096;font-size:14px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}label{display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;color:#526174}input,textarea{border:1px solid #d7dfe8;border-radius:8px;padding:10px 11px;background:#fbfcfe;font:inherit}textarea{min-height:82px}.notice{margin:18px 0;background:#e8f3ff;border:1px solid #b7d8f5;padding:13px 16px;border-radius:9px;color:#15598e}.error{background:#fff0f0;border-color:#efb6b6;color:#9b2525}.panelHead{display:flex;align-items:start;justify-content:space-between;gap:12px}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:14px}th{text-align:left;color:#718096;font-size:11px;text-transform:uppercase;padding:11px;border-bottom:1px solid #e6ebf0}td{padding:14px 11px;border-bottom:1px solid #eef2f5}.status{background:#e8f3ff;color:#1767a3;border-radius:20px;padding:5px 9px;font-size:11px;font-weight:700}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}.loginRow{display:grid;gap:12px}.small{font-size:12px;color:#718096}.version{margin-top:16px;font-size:11px;color:#9aa6b2}@media(max-width:850px){.hero{flex-direction:column;align-items:start}.grid{grid-template-columns:1fr 1fr}.stats{width:100%;overflow:auto}}@media(max-width:560px){.grid{grid-template-columns:1fr}.hero,.panel{margin-left:0;margin-right:0}.panel{border-radius:0}.hero{padding:28px 18px}.topbar{padding:0 18px}}
   </style>
 </head>
 <body>
@@ -16,18 +16,19 @@
     <p class="muted">GNS Cargo Ordre & Control Tower</p>
     <div id="authMsg"></div>
     <div class="loginRow">
-      <label>E-post<input id="email" type="email" autocomplete="email"></label>
-      <label>Passord<input id="password" type="password" autocomplete="current-password"></label>
-      <button class="btn primary" id="loginBtn">Logg inn</button>
-      <button class="btn secondary" id="signupBtn">Opprett bruker</button>
-      <div class="small">Brukere må være registrert i Supabase Auth. Første bruker får standardrollen dispatcher.</div>
+      <label>E-post<input id="email" type="email" autocomplete="email" required></label>
+      <label>Passord<input id="password" type="password" autocomplete="current-password" minlength="6" required></label>
+      <button class="btn primary" id="loginBtn" type="button">Logg inn</button>
+      <button class="btn secondary" id="signupBtn" type="button">Opprett bruker</button>
+      <div class="small">Bruk vanlig e-post og passord. Minimum 6 tegn i passord.</div>
+      <div class="version">Versjon: signup-fix-2026-09-10</div>
     </div>
   </div>
 
   <div id="appView" class="hidden">
     <header class="topbar">
       <div><div class="brand">GNS <span>CARGO</span></div><div class="subtitle">Ordre & transportstyring</div></div>
-      <div class="actions"><button class="btn secondary" id="logoutBtn">Logg ut</button></div>
+      <div class="actions"><button class="btn secondary" id="logoutBtn" type="button">Logg ut</button></div>
     </header>
     <section class="hero">
       <div><p class="eyebrow">CONTROL TOWER</p><h1>Transportoversikt</h1><p>Opprett, fordel og følg transportordre fra ett sted.</p></div>
@@ -39,55 +40,31 @@
       <div id="appMsg"></div>
       <form id="orderForm">
         <div class="grid">
-          <label>Kunde<input name="customer" required></label>
-          <label>Gods<input name="goods" placeholder="F.eks. fersk laks"></label>
-          <label>Hentested<input name="pickup_name"></label>
-          <label>Henteadresse<input name="pickup_address"></label>
-          <label>Hentetid<input name="pickup_at" type="datetime-local"></label>
-          <label>Leveringssted<input name="delivery_name"></label>
-          <label>Leveringsadresse<input name="delivery_address"></label>
-          <label>Leveringstid<input name="delivery_at" type="datetime-local"></label>
-          <label>Paller<input name="pallets" type="number"></label>
-          <label>Vekt kg<input name="weight_kg" type="number"></label>
-          <label>Temperatur<input name="temperature" placeholder="0–4 °C"></label>
-          <label>Transportør<input name="carrier_name"></label>
-          <label>Transportør e-post<input name="carrier_email" type="email"></label>
-          <label>Sjåfør<input name="driver_name"></label>
-          <label>Sjåfør telefon<input name="driver_phone"></label>
-          <label>Registreringsnummer<input name="vehicle_registration"></label>
-          <label>Innkjøpspris<input name="carrier_price" type="number"></label>
-          <label>Salgspris<input name="customer_price" type="number"></label>
+          <label>Kunde<input name="customer" required></label><label>Gods<input name="goods" placeholder="F.eks. fersk laks"></label><label>Hentested<input name="pickup_name"></label><label>Henteadresse<input name="pickup_address"></label><label>Hentetid<input name="pickup_at" type="datetime-local"></label><label>Leveringssted<input name="delivery_name"></label><label>Leveringsadresse<input name="delivery_address"></label><label>Leveringstid<input name="delivery_at" type="datetime-local"></label><label>Paller<input name="pallets" type="number"></label><label>Vekt kg<input name="weight_kg" type="number"></label><label>Temperatur<input name="temperature" placeholder="0–4 °C"></label><label>Transportør<input name="carrier_name"></label><label>Transportør e-post<input name="carrier_email" type="email"></label><label>Sjåfør<input name="driver_name"></label><label>Sjåfør telefon<input name="driver_phone"></label><label>Registreringsnummer<input name="vehicle_registration"></label><label>Innkjøpspris<input name="carrier_price" type="number"></label><label>Salgspris<input name="customer_price" type="number"></label>
         </div>
         <label style="margin-top:14px">Instruksjoner<textarea name="instructions"></textarea></label>
         <div class="actions"><button class="btn primary" type="submit">Opprett ordre</button><button class="btn secondary" type="reset">Nullstill</button></div>
       </form>
     </section>
 
-    <section class="panel">
-      <div class="panelHead"><div><h2>Ordre</h2><p class="muted">Seneste transportordre</p></div><button class="btn secondary" id="refreshBtn">Oppdater</button></div>
-      <div class="tableWrap"><table><thead><tr><th>Ordre</th><th>Kunde</th><th>Rute</th><th>Transportør</th><th>Status</th><th>Margin</th></tr></thead><tbody id="ordersBody"></tbody></table></div>
-    </section>
+    <section class="panel"><div class="panelHead"><div><h2>Ordre</h2><p class="muted">Seneste transportordre</p></div><button class="btn secondary" id="refreshBtn" type="button">Oppdater</button></div><div class="tableWrap"><table><thead><tr><th>Ordre</th><th>Kunde</th><th>Rute</th><th>Transportør</th><th>Status</th><th>Margin</th></tr></thead><tbody id="ordersBody"></tbody></table></div></section>
   </div>
 
 <script>
 const SUPABASE_URL='https://lpovhfipxoeqqnfnipia.supabase.co';
 const SUPABASE_KEY='sb_publishable_7WEioWEeqiSNE1nSFXD8lg_zosjgsC_';
 const client=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-const authView=document.getElementById('authView');
-const appView=document.getElementById('appView');
-const authMsg=document.getElementById('authMsg');
-const appMsg=document.getElementById('appMsg');
+const authView=document.getElementById('authView'), appView=document.getElementById('appView'), authMsg=document.getElementById('authMsg'), appMsg=document.getElementById('appMsg');
 const nok=v=>new Intl.NumberFormat('nb-NO',{style:'currency',currency:'NOK',maximumFractionDigits:0}).format(Number(v||0));
 function msg(el,text,isError=false){el.innerHTML=text?`<div class="notice ${isError?'error':''}">${text}</div>`:''}
+function credentials(){const email=document.getElementById('email').value.trim();const password=document.getElementById('password').value;if(!email)return {error:'Skriv inn e-postadresse.'};if(!password||password.length<6)return {error:'Passord må være minst 6 tegn.'};return {email,password};}
 async function showSession(){const {data}=await client.auth.getSession();const logged=!!data.session;authView.classList.toggle('hidden',logged);appView.classList.toggle('hidden',!logged);if(logged)loadOrders();}
 async function loadOrders(){const {data,error}=await client.from('orders').select('id,order_number,customer,pickup_name,delivery_name,carrier_name,carrier_price,customer_price,status,created_at').order('order_number',{ascending:false});if(error){msg(appMsg,'Kunne ikke hente ordre: '+error.message,true);return;}msg(appMsg,'');const rows=data||[];document.getElementById('ordersBody').innerHTML=rows.map(o=>`<tr><td><b>#${o.order_number}</b></td><td>${o.customer||''}</td><td>${o.pickup_name||'—'} → ${o.delivery_name||'—'}</td><td>${o.carrier_name||'Ikke tildelt'}</td><td><span class="status">${o.status}</span></td><td>${nok((o.customer_price||0)-(o.carrier_price||0))}</td></tr>`).join('')||'<tr><td colspan="6" class="muted">Ingen ordre ennå.</td></tr>';document.getElementById('countOrders').textContent=rows.length;document.getElementById('countNew').textContent=rows.filter(o=>o.status==='created').length;document.getElementById('marginTotal').textContent=nok(rows.reduce((s,o)=>s+(Number(o.customer_price||0)-Number(o.carrier_price||0)),0));}
-document.getElementById('loginBtn').onclick=async()=>{const email=document.getElementById('email').value;const password=document.getElementById('password').value;const {error}=await client.auth.signInWithPassword({email,password});if(error)msg(authMsg,error.message,true);else{msg(authMsg,'');showSession();}};
-document.getElementById('signupBtn').onclick=async()=>{const email=document.getElementById('email').value;const password=document.getElementById('password').value;const {data,error}=await client.auth.signUp({email,password});if(error)msg(authMsg,error.message,true);else msg(authMsg,data.session?'Bruker opprettet og innlogget.':'Bruker opprettet. Sjekk e-post hvis bekreftelse er aktivert.');showSession();};
-document.getElementById('logoutBtn').onclick=async()=>{await client.auth.signOut();showSession();};
-document.getElementById('refreshBtn').onclick=loadOrders;
+document.getElementById('loginBtn').onclick=async()=>{const c=credentials();if(c.error){msg(authMsg,c.error,true);return;}const {error}=await client.auth.signInWithPassword({email:c.email,password:c.password});if(error)msg(authMsg,error.message,true);else{msg(authMsg,'');await showSession();}};
+document.getElementById('signupBtn').onclick=async()=>{const c=credentials();if(c.error){msg(authMsg,c.error,true);return;}msg(authMsg,'Oppretter bruker…');const {data,error}=await client.auth.signUp({email:c.email,password:c.password,options:{emailRedirectTo:'https://gnscargo.vercel.app'}});if(error){msg(authMsg,'Registrering feilet: '+error.message,true);return;}if(data.session){msg(authMsg,'Bruker opprettet og innlogget.');await showSession();}else{msg(authMsg,'Bruker opprettet. Sjekk e-posten og bekreft kontoen før innlogging.');}};
+document.getElementById('logoutBtn').onclick=async()=>{await client.auth.signOut();await showSession();};document.getElementById('refreshBtn').onclick=loadOrders;
 document.getElementById('orderForm').addEventListener('submit',async e=>{e.preventDefault();const fd=new FormData(e.target);const obj=Object.fromEntries(fd.entries());['pallets','weight_kg','carrier_price','customer_price'].forEach(k=>obj[k]=obj[k]?Number(obj[k]):null);['pickup_at','delivery_at'].forEach(k=>obj[k]=obj[k]?new Date(obj[k]).toISOString():null);obj.status='created';const {data,error}=await client.from('orders').insert(obj).select('order_number').single();if(error)msg(appMsg,'Ordren kunne ikke lagres: '+error.message,true);else{msg(appMsg,'Ordre #'+data.order_number+' er opprettet.');e.target.reset();loadOrders();}});
-client.auth.onAuthStateChange(()=>showSession());
-showSession();
+client.auth.onAuthStateChange(()=>showSession());showSession();
 </script>
 </body>
 </html>
