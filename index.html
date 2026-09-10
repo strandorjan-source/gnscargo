@@ -7,68 +7,363 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#f4f7fb;color:#122033;font:14px Arial,sans-serif}.hidden{display:none!important}.top{background:#071b31;color:#fff;padding:18px 5vw;display:flex;justify-content:space-between;align-items:center}.brand{font-size:26px;font-weight:900}.brand span{color:#1688d4}.btn{border:0;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer}.blue{background:#1479bd;color:#fff}.white{background:#fff;border:1px solid #d8e0e8}.hero{background:#0b2947;color:#fff;padding:30px 5vw}.panel,.auth{margin:20px 5vw;background:#fff;border:1px solid #e0e7ee;border-radius:12px;padding:20px}.auth{max-width:440px;margin:60px auto}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:#536273}input,textarea{padding:10px;border:1px solid #d5dee7;border-radius:7px}textarea{min-height:70px}.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}.notice{padding:11px;background:#edf8f1;margin:12px 0;border-radius:7px}.error{background:#fff0f0;color:#9b2525}.table{overflow:auto}table{width:100%;border-collapse:collapse}th,td{padding:11px;border-bottom:1px solid #edf1f5;text-align:left}.modal{position:fixed;inset:0;background:#071b31cc;display:flex;align-items:center;justify-content:center;padding:18px;z-index:20}.card{background:#fff;width:min(850px,100%);max-height:92vh;overflow:auto;border-radius:12px;padding:22px}.sheet{border:1px solid #dce4ec;border-radius:10px;padding:20px}.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}.price{background:#eef6fc;border-left:4px solid #1479bd;padding:12px;margin-top:12px}.version{margin-top:12px;font-size:11px;color:#8794a3}@media(max-width:750px){.grid,.cols{grid-template-columns:1fr}.panel{margin:14px 0}}
+*{box-sizing:border-box}
+body{margin:0;background:#f4f7fb;color:#122033;font:14px Arial,Helvetica,sans-serif}
+.hidden{display:none!important}
+.top{background:#071b31;color:#fff;padding:14px 5vw;display:flex;justify-content:space-between;align-items:center;gap:14px}
+.topLogo{height:48px;width:auto;background:white;border-radius:6px;padding:4px 8px}
+.btn{border:0;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.blue{background:#1479bd;color:#fff}
+.white{background:#fff;border:1px solid #d8e0e8;color:#183049}
+.hero{background:#0b2947;color:#fff;padding:30px 5vw}
+.hero h1{margin:0 0 6px}
+.panel,.auth{margin:20px 5vw;background:#fff;border:1px solid #e0e7ee;border-radius:12px;padding:20px}
+.auth{max-width:440px;margin:60px auto}
+.authLogo{display:block;max-width:260px;width:100%;height:auto;margin:0 auto 18px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:#536273}
+input,textarea{padding:10px;border:1px solid #d5dee7;border-radius:7px;font:inherit}
+textarea{min-height:70px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.notice{padding:11px;background:#edf8f1;margin:12px 0;border-radius:7px}
+.error{background:#fff0f0;color:#9b2525}
+.table{overflow:auto}
+table{width:100%;border-collapse:collapse}
+th,td{padding:11px;border-bottom:1px solid #edf1f5;text-align:left}
+.modal{position:fixed;inset:0;background:#071b31cc;display:flex;align-items:center;justify-content:center;padding:18px;z-index:100}
+.card{background:#fff;width:min(900px,100%);max-height:92vh;overflow:auto;border-radius:12px;padding:22px}
+.sheet{border:1px solid #dce4ec;border-radius:10px;padding:22px}
+.sheetHeader{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:4px solid #1479bd;padding-bottom:14px;margin-bottom:18px}
+.sheetLogo{width:230px;max-width:48%;height:auto}
+.orderNo{text-align:right}
+.orderNo h2{margin:0;font-size:24px;color:#071b31}
+.orderNo div{color:#64748b;margin-top:5px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.blockTitle{background:#071b31;color:#fff;padding:8px 10px;font-weight:800;letter-spacing:.3px;margin-bottom:10px}
+.kv{display:grid;grid-template-columns:110px 1fr;gap:8px;margin:6px 0}
+.kv b{color:#536273}
+.price{background:#eef6fc;border-left:4px solid #1479bd;padding:14px;margin-top:16px}
+.reportRow{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+.muted{color:#64748b}
+.version{font-size:11px;color:#94a3b8;margin-top:12px}
+@media(max-width:750px){.grid,.cols{grid-template-columns:1fr}.panel{margin:14px 0}.sheetHeader{flex-direction:column}.orderNo{text-align:left}}
 </style>
 </head>
 <body>
 <div id="auth" class="auth">
-  <div class="brand">GNS <span>CARGO AS</span></div>
+  <img id="authLogo" class="authLogo" alt="GNS Cargo AS">
   <h2>Logg inn</h2>
   <div id="authmsg"></div>
-  <label>E-post<input id="email" type="email"></label><br>
-  <label>Passord<input id="password" type="password"></label>
-  <div class="actions"><button class="btn blue" id="login" type="button">Logg inn</button><button class="btn white" id="signup" type="button">Opprett bruker</button></div>
-  <div class="version">Versjon: buttons-fix-2026-09-10</div>
+  <label>E-post<input id="email" type="email" autocomplete="email"></label><br>
+  <label>Passord<input id="password" type="password" autocomplete="current-password"></label>
+  <div class="actions">
+    <button class="btn blue" id="login" type="button">Logg inn</button>
+    <button class="btn white" id="signup" type="button">Opprett bruker</button>
+  </div>
+  <div class="version">Versjon: direct-pdf-logo-2026-09-10</div>
 </div>
 
 <div id="app" class="hidden">
-<header class="top"><div class="brand">GNS <span>CARGO AS</span></div><button class="btn white" id="logout" type="button">Logg ut</button></header>
-<section class="hero"><h1>Control Tower</h1><div>Opprett ordre, send lasteliste og hent rapporter.</div></section>
-<section class="panel">
-<h2>Ny transportordre</h2><div id="msg"></div>
-<form id="form"><div class="grid">
-<label>Kunde<input name="customer" required></label><label>Kundereferanse<input name="customer_reference"></label><label>Gods<input name="goods"></label>
-<label>Hentested<input name="pickup_name"></label><label>Henteadresse<input name="pickup_address"></label><label>Hentetid<input name="pickup_at" type="datetime-local"></label>
-<label>Kontakt hentested<input name="pickup_contact"></label><label>Telefon hentested<input name="pickup_phone"></label><span></span>
-<label>Leveringssted<input name="delivery_name"></label><label>Leveringsadresse<input name="delivery_address"></label><label>Leveringstid<input name="delivery_at" type="datetime-local"></label>
-<label>Kontakt levering<input name="delivery_contact"></label><label>Telefon levering<input name="delivery_phone"></label><span></span>
-<label>Paller<input name="pallets" type="number"></label><label>Vekt kg<input name="weight_kg" type="number"></label><label>Temperatur<input name="temperature"></label>
-<label>Transportør<input name="carrier_name"></label><label>Transportør e-post<input name="carrier_email" type="email"></label><label>Sjåfør<input name="driver_name"></label>
-<label>Sjåfør telefon<input name="driver_phone"></label><label>Reg.nr<input name="vehicle_registration"></label><span></span>
-<label>Innkjøpspris / transportør<input name="carrier_price" type="number"></label><label>Salgspris / kunde<input name="customer_price" type="number"></label>
-</div><label style="margin-top:12px">Instruksjoner<textarea name="instructions"></textarea></label><button class="btn blue" style="margin-top:12px" type="submit">Opprett ordre</button></form>
-</section>
-<section class="panel"><h2>Rapporter</h2><div class="actions"><label>Måned<input id="month" type="month"></label><button class="btn blue" id="monthcsv" type="button">Last ned månedsrapport</button><button class="btn white" id="allcsv" type="button">Last ned alle ordre</button></div></section>
-<section class="panel"><h2>Ordre</h2><button class="btn white" id="refresh" type="button">Oppdater</button><div class="table"><table><thead><tr><th>Ordre</th><th>Kunde</th><th>Rute</th><th>Transportør</th><th>Status</th><th></th></tr></thead><tbody id="rows"></tbody></table></div></section>
+  <header class="top">
+    <img id="topLogo" class="topLogo" alt="GNS Cargo AS">
+    <button class="btn white" id="logout" type="button">Logg ut</button>
+  </header>
+  <section class="hero"><h1>Control Tower</h1><div>Opprett ordre, send lasteliste som PDF og hent rapporter.</div></section>
+
+  <section class="panel">
+    <h2>Ny transportordre</h2>
+    <div id="msg"></div>
+    <form id="form">
+      <div class="grid">
+        <label>Kunde<input name="customer" required></label>
+        <label>Kundereferanse<input name="customer_reference"></label>
+        <label>Gods<input name="goods"></label>
+        <label>Hentested<input name="pickup_name"></label>
+        <label>Henteadresse<input name="pickup_address"></label>
+        <label>Hentetid<input name="pickup_at" type="datetime-local"></label>
+        <label>Kontakt hentested<input name="pickup_contact"></label>
+        <label>Telefon hentested<input name="pickup_phone"></label><span></span>
+        <label>Leveringssted<input name="delivery_name"></label>
+        <label>Leveringsadresse<input name="delivery_address"></label>
+        <label>Leveringstid<input name="delivery_at" type="datetime-local"></label>
+        <label>Kontakt levering<input name="delivery_contact"></label>
+        <label>Telefon levering<input name="delivery_phone"></label><span></span>
+        <label>Paller<input name="pallets" type="number"></label>
+        <label>Vekt kg<input name="weight_kg" type="number"></label>
+        <label>Temperatur<input name="temperature"></label>
+        <label>Transportør<input name="carrier_name"></label>
+        <label>Transportør e-post<input name="carrier_email" type="email"></label>
+        <label>Sjåfør<input name="driver_name"></label>
+        <label>Sjåfør telefon<input name="driver_phone"></label>
+        <label>Reg.nr<input name="vehicle_registration"></label><span></span>
+        <label>Innkjøpspris / transportør<input name="carrier_price" type="number"></label>
+        <label>Salgspris / kunde<input name="customer_price" type="number"></label>
+      </div>
+      <label style="margin-top:12px">Instruksjoner<textarea name="instructions"></textarea></label>
+      <button class="btn blue" style="margin-top:12px" type="submit">Opprett ordre</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Rapporter</h2>
+    <div class="reportRow">
+      <label>Måned<input id="month" type="month"></label>
+      <button class="btn blue" id="monthcsv" type="button">Last ned månedsrapport</button>
+      <button class="btn white" id="allcsv" type="button">Last ned alle ordre</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Ordre</h2>
+    <div class="table"><table>
+      <thead><tr><th>Ordre</th><th>Kunde</th><th>Rute</th><th>Transportør</th><th>Status</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </section>
 </div>
-<div id="modal" class="modal hidden"><div class="card"><button class="btn white" style="float:right" id="closeModal" type="button">Lukk</button><h2>Lasteliste / transportordre</h2><div id="sheet" class="sheet"></div><div class="actions"><button class="btn blue" id="pdf" type="button">Last ned PDF</button><button class="btn white" id="mail" type="button">Send ordre på e-post</button></div></div></div>
+
+<div id="modal" class="modal hidden">
+  <div class="card">
+    <button class="btn white" style="float:right" onclick="closeM()" type="button">Lukk</button>
+    <h2>Lasteliste / transportordre</h2>
+    <div id="sheet" class="sheet"></div>
+    <div class="actions">
+      <button class="btn blue" id="sharepdf" type="button">Del/send PDF</button>
+      <button class="btn white" id="pdf" type="button">Last ned PDF</button>
+      <button class="btn white" id="mail" type="button">Åpne e-post</button>
+    </div>
+    <p class="muted">«Del/send PDF» legger selve PDF-filen ved i systemets delemeny når nettleseren støtter fildeling. På Mac/iPhone kan du velge Mail og sende PDF-en direkte.</p>
+  </div>
+</div>
+
 <script>
-const SUPABASE_URL='https://lpovhfipxoeqqnfnipia.supabase.co';
-const SUPABASE_KEY='sb_publishable_7WEioWEeqiSNE1nSFXD8lg_zosjgsC_';
-const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-let orders=[];let currentOrder=null;
-const $=id=>document.getElementById(id);
-const esc=v=>String(v??'').replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]));
-const fmt=v=>v?new Date(v).toLocaleString('nb-NO'):'—';
-const nok=v=>new Intl.NumberFormat('nb-NO',{style:'currency',currency:'NOK',maximumFractionDigits:0}).format(Number(v||0));
-function note(el,text,isError=false){el.innerHTML=text?'<div class="notice '+(isError?'error':'')+'">'+esc(text)+'</div>':'';}
-function creds(){return {email:$('email').value.trim(),password:$('password').value};}
-async function session(){const {data}=await sb.auth.getSession();const logged=!!data.session;$('auth').classList.toggle('hidden',logged);$('app').classList.toggle('hidden',!logged);if(logged)await loadOrders();}
-async function loadOrders(){const {data,error}=await sb.from('orders').select('*').order('order_number',{ascending:false});if(error){note($('msg'),'Kunne ikke hente ordre: '+error.message,true);return;}orders=data||[];$('rows').innerHTML=orders.map(o=>'<tr><td><b>#'+o.order_number+'</b></td><td>'+esc(o.customer)+'</td><td>'+esc(o.pickup_name||'—')+' → '+esc(o.delivery_name||'—')+'</td><td>'+esc(o.carrier_name||'—')+'</td><td>'+esc(o.status)+'</td><td><button class="btn white openOrder" data-id="'+o.id+'">Åpne</button></td></tr>').join('')||'<tr><td colspan="6">Ingen ordre ennå.</td></tr>';document.querySelectorAll('.openOrder').forEach(b=>b.onclick=()=>openOrder(b.dataset.id));}
-$('login').onclick=async()=>{const c=creds();if(!c.email||!c.password){note($('authmsg'),'Fyll inn e-post og passord.',true);return;}const {error}=await sb.auth.signInWithPassword(c);if(error)note($('authmsg'),error.message,true);else await session();};
-$('signup').onclick=async()=>{const c=creds();if(!c.email||c.password.length<6){note($('authmsg'),'Fyll inn gyldig e-post og minst 6 tegn i passord.',true);return;}const {data,error}=await sb.auth.signUp({email:c.email,password:c.password,options:{emailRedirectTo:'https://gnscargo.vercel.app'}});if(error)note($('authmsg'),error.message,true);else{note($('authmsg'),data.session?'Bruker opprettet og innlogget.':'Bruker opprettet. Bekreft e-post hvis nødvendig.');await session();}};
-$('logout').onclick=async()=>{await sb.auth.signOut();await session();};
-$('refresh').onclick=loadOrders;
-$('form').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target).entries());['pallets','weight_kg','carrier_price','customer_price'].forEach(k=>o[k]=o[k]?Number(o[k]):null);['pickup_at','delivery_at'].forEach(k=>o[k]=o[k]?new Date(o[k]).toISOString():null);o.status='created';const {data,error}=await sb.from('orders').insert(o).select('order_number').single();if(error)note($('msg'),'Ordren kunne ikke lagres: '+error.message,true);else{note($('msg'),'Ordre #'+data.order_number+' opprettet.');e.target.reset();await loadOrders();}};
-function openOrder(id){currentOrder=orders.find(o=>o.id===id);if(!currentOrder)return;const o=currentOrder;$('sheet').innerHTML='<div class="brand">GNS <span>CARGO AS</span></div><h2>TRANSPORTORDRE / LASTELISTE #'+o.order_number+'</h2><div class="cols"><div><h3>HENTESTED</h3>'+esc(o.pickup_name||'—')+'<br>'+esc(o.pickup_address||'—')+'<br>'+esc(fmt(o.pickup_at))+'<br>'+esc(o.pickup_contact||'—')+' · '+esc(o.pickup_phone||'—')+'</div><div><h3>LEVERINGSSTED</h3>'+esc(o.delivery_name||'—')+'<br>'+esc(o.delivery_address||'—')+'<br>'+esc(fmt(o.delivery_at))+'<br>'+esc(o.delivery_contact||'—')+' · '+esc(o.delivery_phone||'—')+'</div></div><hr><div class="cols"><div><h3>GODS</h3>'+esc(o.goods||'—')+'<br>Paller: '+esc(o.pallets??'—')+'<br>Vekt: '+esc(o.weight_kg??'—')+' kg<br>Temperatur: '+esc(o.temperature||'—')+'</div><div><h3>TRANSPORTØR</h3>'+esc(o.carrier_name||'—')+'<br>Sjåfør: '+esc(o.driver_name||'—')+'<br>Tlf: '+esc(o.driver_phone||'—')+'<br>Reg.nr: '+esc(o.vehicle_registration||'—')+'</div></div><div class="price"><b>Transportør skal fakturere:</b> '+nok(o.carrier_price)+' eks. mva.<br><b>Fakturareferanse:</b> GNS-'+o.order_number+'</div><h3>INSTRUKSJONER</h3>'+esc(o.instructions||'Ingen særskilte instruksjoner.');$('modal').classList.remove('hidden');}
-$('closeModal').onclick=()=>{$('modal').classList.add('hidden');currentOrder=null;};
-function makePdf(o){const {jsPDF}=window.jspdf;const d=new jsPDF({unit:'mm',format:'a4'});const navy=[8,49,92],blue=[20,121,189];d.setFillColor(...navy);d.rect(0,0,210,36,'F');d.setTextColor(255);d.setFont('helvetica','bold');d.setFontSize(27);d.text('GNS',15,18);d.setTextColor(...blue);d.setFontSize(11);d.text('CARGO AS',15,27);d.setTextColor(255);d.setFontSize(16);d.text('TRANSPORTORDRE / LASTELISTE',95,17);d.setFontSize(11);d.text('#'+o.order_number,95,26);let y=46;function section(title){d.setFillColor(...navy);d.rect(15,y,180,8,'F');d.setTextColor(255);d.setFontSize(10);d.text(title,18,y+5.5);y+=13;}function line(label,value){d.setTextColor(25,40,58);d.setFontSize(9);d.setFont('helvetica','bold');d.text(label,18,y);d.setFont('helvetica','normal');d.text(String(value??'—'),55,y,{maxWidth:135});y+=6;}section('HENTING');line('Sted',o.pickup_name);line('Adresse',o.pickup_address);line('Tid',fmt(o.pickup_at));line('Kontakt',o.pickup_contact);line('Telefon',o.pickup_phone);y+=3;section('LEVERING');line('Sted',o.delivery_name);line('Adresse',o.delivery_address);line('Tid',fmt(o.delivery_at));line('Kontakt',o.delivery_contact);line('Telefon',o.delivery_phone);y+=3;section('GODS');line('Gods',o.goods);line('Paller',o.pallets);line('Vekt',o.weight_kg?o.weight_kg+' kg':'—');line('Temperatur',o.temperature);y+=3;section('TRANSPORTØR / SJÅFØR');line('Transportør',o.carrier_name);line('Sjåfør',o.driver_name);line('Telefon',o.driver_phone);line('Reg.nr',o.vehicle_registration);y+=4;d.setFillColor(235,245,252);d.rect(15,y,180,22,'F');d.setTextColor(...navy);d.setFont('helvetica','bold');d.setFontSize(11);d.text('Avtalt transportørpris: '+nok(o.carrier_price)+' eks. mva.',19,y+8);d.setFontSize(10);d.text('Fakturareferanse: GNS-'+o.order_number,19,y+16);y+=30;section('TILLEGGSINFORMASJON');d.setTextColor(25,40,58);d.setFont('helvetica','normal');d.setFontSize(9);d.text(String(o.instructions||'Ingen særskilte instruksjoner.'),18,y,{maxWidth:174});d.setDrawColor(210);d.line(15,280,195,280);d.setTextColor(...navy);d.setFont('helvetica','bold');d.setFontSize(8);d.text('GNS Cargo AS',15,286);return d;}
-$('pdf').onclick=()=>{if(currentOrder)makePdf(currentOrder).save('GNS-Lasteliste-'+currentOrder.order_number+'.pdf');};
-$('mail').onclick=async()=>{if(!currentOrder)return;const o=currentOrder;const subject=encodeURIComponent('GNS Cargo transportordre #'+o.order_number);const body=encodeURIComponent('Hei,\n\nTransportordre #'+o.order_number+'\nHenting: '+(o.pickup_name||'')+' '+fmt(o.pickup_at)+'\nLevering: '+(o.delivery_name||'')+' '+fmt(o.delivery_at)+'\nAvtalt pris: '+nok(o.carrier_price)+' eks. mva.\nFakturareferanse: GNS-'+o.order_number+'\n\nMvh GNS Cargo AS');await sb.from('orders').update({status:'sent',sent_at:new Date().toISOString()}).eq('id',o.id);window.location.href='mailto:'+(o.carrier_email||'')+'?subject='+subject+'&body='+body;await loadOrders();};
-function csvDownload(rows,filename){const header=['Ordrenr','Dato','Status','Kunde','Kundereferanse','Hentested','Hentetid','Leveringssted','Leveringstid','Transportør','Innkjøpspris','Salgspris','Margin'];const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';const lines=[header.map(q).join(';')];rows.forEach(o=>{lines.push([o.order_number,o.created_at,o.status,o.customer,o.customer_reference,o.pickup_name,o.pickup_at,o.delivery_name,o.delivery_at,o.carrier_name,o.carrier_price,o.customer_price,Number(o.customer_price||0)-Number(o.carrier_price||0)].map(q).join(';'));});const blob=new Blob(['\ufeff'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(a.href);}
-$('allcsv').onclick=()=>csvDownload(orders,'GNS-Cargo-alle-ordre.csv');
-$('monthcsv').onclick=()=>{const m=$('month').value;if(!m){alert('Velg måned først.');return;}csvDownload(orders.filter(o=>String(o.created_at||'').slice(0,7)===m),'GNS-Cargo-rapport-'+m+'.csv');};
-sb.auth.onAuthStateChange(()=>session());session();
+const U='https://lpovhfipxoeqqnfnipia.supabase.co';
+const K='sb_publishable_7WEioWEeqiSNE1nSFXD8lg_zosjgsC_';
+let LOGO='';
+const s=window.supabase.createClient(U,K);
+let orders=[],cur=null;
+async function ensureLogo(){
+  if(LOGO) return LOGO;
+  const r=await fetch('/gns-logo.jpg',{cache:'force-cache'});
+  const b64=(await r.text()).trim();
+  LOGO='data:image/jpeg;base64,'+b64;
+  const a=document.getElementById('authLogo'),t=document.getElementById('topLogo');
+  if(a) a.src=LOGO;
+  if(t) t.src=LOGO;
+  return LOGO;
+}
+ensureLogo().catch(()=>{});
+const $=x=>document.getElementById(x);
+const esc=x=>String(x??'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const fmt=x=>x?new Date(x).toLocaleString('nb-NO'): '—';
+const nok=x=>new Intl.NumberFormat('nb-NO',{style:'currency',currency:'NOK',maximumFractionDigits:0}).format(+x||0);
+
+function note(el,t,e=false){el.innerHTML=t?`<div class="notice ${e?'error':''}">${esc(t)}</div>`:''}
+function creds(){return{email:$('email').value.trim(),password:$('password').value}}
+
+async function session(){
+  const {data}=await s.auth.getSession();
+  const ok=!!data.session;
+  $('auth').classList.toggle('hidden',ok);
+  $('app').classList.toggle('hidden',!ok);
+  if(ok) load();
+}
+
+async function load(){
+  const {data,error}=await s.from('orders').select('*').order('order_number',{ascending:false});
+  if(error) return note($('msg'),error.message,true);
+  orders=data||[];
+  $('rows').innerHTML=orders.map(o=>`<tr>
+    <td><b>#${o.order_number}</b></td>
+    <td>${esc(o.customer)}</td>
+    <td>${esc(o.pickup_name||'—')} → ${esc(o.delivery_name||'—')}</td>
+    <td>${esc(o.carrier_name||'—')}</td>
+    <td>${esc(o.status)}</td>
+    <td><button class="btn white" type="button" onclick="openO('${o.id}')">Åpne</button></td>
+  </tr>`).join('');
+}
+
+$('login').onclick=async()=>{
+  const c=creds();
+  const {error}=await s.auth.signInWithPassword(c);
+  error?note($('authmsg'),error.message,true):session();
+};
+$('signup').onclick=async()=>{
+  const c=creds();
+  const {error}=await s.auth.signUp({...c,options:{emailRedirectTo:'https://gnscargo.vercel.app'}});
+  note($('authmsg'),error?error.message:'Bruker opprettet. Bekreft e-post hvis nødvendig.',!!error);
+};
+$('logout').onclick=async()=>{await s.auth.signOut();session()};
+
+$('form').onsubmit=async e=>{
+  e.preventDefault();
+  const o=Object.fromEntries(new FormData(e.target));
+  ['pallets','weight_kg','carrier_price','customer_price'].forEach(k=>o[k]=o[k]?+o[k]:null);
+  ['pickup_at','delivery_at'].forEach(k=>o[k]=o[k]?new Date(o[k]).toISOString():null);
+  o.status='created';
+  const {data,error}=await s.from('orders').insert(o).select('order_number').single();
+  if(error) note($('msg'),error.message,true);
+  else{note($('msg'),'Ordre #'+data.order_number+' opprettet.');e.target.reset();load()}
+};
+
+window.openO=id=>{
+  cur=orders.find(x=>x.id===id);
+  if(!cur) return;
+  const o=cur;
+  $('sheet').innerHTML=`
+  <div class="sheetHeader">
+    <img src="${LOGO}" class="sheetLogo" alt="GNS Cargo AS">
+    <div class="orderNo"><h2>ORDRE #${o.order_number}</h2><div>${new Date(o.created_at||Date.now()).toLocaleDateString('nb-NO')}</div></div>
+  </div>
+  <div class="cols">
+    <div><div class="blockTitle">HENTESTED</div>
+      <div class="kv"><b>Sted</b><span>${esc(o.pickup_name||'—')}</span></div>
+      <div class="kv"><b>Adresse</b><span>${esc(o.pickup_address||'—')}</span></div>
+      <div class="kv"><b>Tid</b><span>${fmt(o.pickup_at)}</span></div>
+      <div class="kv"><b>Kontakt</b><span>${esc(o.pickup_contact||'—')}</span></div>
+      <div class="kv"><b>Telefon</b><span>${esc(o.pickup_phone||'—')}</span></div>
+    </div>
+    <div><div class="blockTitle">LEVERINGSSTED</div>
+      <div class="kv"><b>Sted</b><span>${esc(o.delivery_name||'—')}</span></div>
+      <div class="kv"><b>Adresse</b><span>${esc(o.delivery_address||'—')}</span></div>
+      <div class="kv"><b>Tid</b><span>${fmt(o.delivery_at)}</span></div>
+      <div class="kv"><b>Kontakt</b><span>${esc(o.delivery_contact||'—')}</span></div>
+      <div class="kv"><b>Telefon</b><span>${esc(o.delivery_phone||'—')}</span></div>
+    </div>
+  </div>
+  <div class="cols" style="margin-top:18px">
+    <div><div class="blockTitle">GODS</div>
+      <div class="kv"><b>Kunde</b><span>${esc(o.customer||'—')}</span></div>
+      <div class="kv"><b>Kunderef.</b><span>${esc(o.customer_reference||'—')}</span></div>
+      <div class="kv"><b>Gods</b><span>${esc(o.goods||'—')}</span></div>
+      <div class="kv"><b>Paller</b><span>${esc(o.pallets??'—')}</span></div>
+      <div class="kv"><b>Vekt</b><span>${esc(o.weight_kg??'—')} kg</span></div>
+      <div class="kv"><b>Temperatur</b><span>${esc(o.temperature||'—')}</span></div>
+    </div>
+    <div><div class="blockTitle">TRANSPORTØR / SJÅFØR</div>
+      <div class="kv"><b>Transportør</b><span>${esc(o.carrier_name||'—')}</span></div>
+      <div class="kv"><b>Sjåfør</b><span>${esc(o.driver_name||'—')}</span></div>
+      <div class="kv"><b>Telefon</b><span>${esc(o.driver_phone||'—')}</span></div>
+      <div class="kv"><b>Reg.nr</b><span>${esc(o.vehicle_registration||'—')}</span></div>
+    </div>
+  </div>
+  <div class="price"><b>Transportør skal fakturere:</b> ${nok(o.carrier_price)} eks. mva.<br><b>Fakturareferanse:</b> GNS-${o.order_number}</div>
+  <div style="margin-top:18px"><div class="blockTitle">INSTRUKSJONER</div>${esc(o.instructions||'Ingen særskilte instruksjoner.')}</div>`;
+  $('modal').classList.remove('hidden');
+};
+window.closeM=()=>{$('modal').classList.add('hidden');cur=null};
+
+async function makePdf(o){
+  await ensureLogo();
+  const {jsPDF}=window.jspdf;
+  const d=new jsPDF({unit:'mm',format:'a4'});
+  const navy=[7,27,49], blue=[20,121,189], gray=[82,98,115];
+  d.addImage(LOGO,'JPEG',15,10,58,40);
+  d.setTextColor(...navy); d.setFont('helvetica','bold'); d.setFontSize(18);
+  d.text('TRANSPORTORDRE / LASTELISTE',92,18);
+  d.setFontSize(14); d.text('#'+o.order_number,92,27);
+  d.setTextColor(...gray); d.setFont('helvetica','normal'); d.setFontSize(9);
+  d.text('Opprettet: '+new Date(o.created_at||Date.now()).toLocaleDateString('nb-NO'),92,34);
+  d.setDrawColor(...blue); d.setLineWidth(1.2); d.line(15,53,195,53);
+
+  let y=60;
+  function title(text,x,w){
+    d.setFillColor(...navy); d.rect(x,y,w,8,'F');
+    d.setTextColor(255); d.setFont('helvetica','bold'); d.setFontSize(9.5);
+    d.text(text,x+3,y+5.4);
+  }
+  function field(label,value,x,yy,maxW=56){
+    d.setTextColor(...gray); d.setFont('helvetica','bold'); d.setFontSize(8);
+    d.text(label,x,yy);
+    d.setTextColor(...navy); d.setFont('helvetica','normal');
+    const lines=d.splitTextToSize(String(value??'—'),maxW);
+    d.text(lines,x+25,yy);
+  }
+  title('HENTESTED',15,86); title('LEVERINGSSTED',109,86); y+=14;
+  const left=[[ 'Sted',o.pickup_name],[ 'Adresse',o.pickup_address],[ 'Tid',fmt(o.pickup_at)],[ 'Kontakt',o.pickup_contact],[ 'Telefon',o.pickup_phone]];
+  const right=[[ 'Sted',o.delivery_name],[ 'Adresse',o.delivery_address],[ 'Tid',fmt(o.delivery_at)],[ 'Kontakt',o.delivery_contact],[ 'Telefon',o.delivery_phone]];
+  for(let i=0;i<5;i++){field(left[i][0],left[i][1]||'—',18,y);field(right[i][0],right[i][1]||'—',112,y);y+=8}
+  y+=4; title('GODS / KUNDE',15,86); title('TRANSPORTØR / SJÅFØR',109,86); y+=14;
+  const l2=[[ 'Kunde',o.customer],[ 'Kunderef.',o.customer_reference],[ 'Gods',o.goods],[ 'Paller',o.pallets],[ 'Vekt',(o.weight_kg??'—')+' kg'],[ 'Temp.',o.temperature]];
+  const r2=[[ 'Transportør',o.carrier_name],[ 'Sjåfør',o.driver_name],[ 'Telefon',o.driver_phone],[ 'Reg.nr',o.vehicle_registration]];
+  for(let i=0;i<6;i++){field(l2[i][0],l2[i][1]||'—',18,y); if(r2[i]) field(r2[i][0],r2[i][1]||'—',112,y); y+=8}
+  y+=4;
+  d.setFillColor(238,246,252); d.rect(15,y,180,26,'F');
+  d.setDrawColor(...blue); d.setLineWidth(1.2); d.line(15,y,15,y+26);
+  d.setTextColor(...navy); d.setFont('helvetica','bold'); d.setFontSize(10);
+  d.text('AVTALT TRANSPORTØRPRIS',20,y+7);
+  d.setFontSize(13); d.text(nok(o.carrier_price)+' eks. mva.',20,y+16);
+  d.setFontSize(9.5); d.text('Fakturareferanse: GNS-'+o.order_number,112,y+14);
+  y+=34; title('TILLEGGSINFORMASJON / INSTRUKSJONER',15,180); y+=14;
+  d.setTextColor(...navy); d.setFont('helvetica','normal'); d.setFontSize(9);
+  d.text(d.splitTextToSize(String(o.instructions||'Ingen særskilte instruksjoner.'),174),18,y);
+  d.setDrawColor(210); d.line(15,274,195,274);
+  d.setTextColor(...navy); d.setFont('helvetica','bold'); d.setFontSize(9); d.text('GNS Cargo AS',15,281);
+  d.setFont('helvetica','normal'); d.setFontSize(8); d.text('Oppgi alltid GNS-referanse på faktura. Transportordre skal medbringes under transport.',15,287);
+  return d;
+}
+
+async function pdfFile(o){
+  const doc=await makePdf(o);
+  const blob=doc.output('blob');
+  return new File([blob],'GNS-Lasteliste-'+o.order_number+'.pdf',{type:'application/pdf'});
+}
+
+$('pdf').onclick=async()=>{if(cur){const d=await makePdf(cur);d.save('GNS-Lasteliste-'+cur.order_number+'.pdf')}};
+
+$('sharepdf').onclick=async()=>{
+  if(!cur) return;
+  const file=await pdfFile(cur);
+  const shareData={
+    title:'GNS Cargo transportordre #'+cur.order_number,
+    text:'Transportordre #'+cur.order_number+' fra GNS Cargo AS.',
+    files:[file]
+  };
+  try{
+    if(navigator.share && (!navigator.canShare || navigator.canShare({files:[file]}))){
+      await navigator.share(shareData);
+      await s.from('orders').update({status:'sent',sent_at:new Date().toISOString()}).eq('id',cur.id);
+      await load();
+      return;
+    }
+  }catch(err){
+    if(err && err.name==='AbortError') return;
+  }
+  const d=await makePdf(cur);d.save(file.name);
+  alert('Nettleseren støtter ikke direkte deling av PDF. PDF-en er lastet ned. Bruk «Åpne e-post» og legg den ved.');
+};
+
+$('mail').onclick=()=>{
+  if(!cur) return;
+  const o=cur;
+  const subject=encodeURIComponent('GNS Cargo transportordre #'+o.order_number);
+  const body=encodeURIComponent('Hei,\n\nVedlagt transportordre / lasteliste #'+o.order_number+'.\n\nHenting: '+(o.pickup_name||'')+' - '+fmt(o.pickup_at)+'\nLevering: '+(o.delivery_name||'')+' - '+fmt(o.delivery_at)+'\nAvtalt pris: '+nok(o.carrier_price)+' eks. mva.\nFakturareferanse: GNS-'+o.order_number+'\n\nMed vennlig hilsen\nGNS Cargo AS');
+  location.href='mailto:'+(o.carrier_email||'')+'?subject='+subject+'&body='+body;
+};
+
+function csv(rows,name){
+  const cols=['order_number','created_at','status','customer','customer_reference','pickup_name','pickup_address','pickup_at','delivery_name','delivery_address','delivery_at','goods','pallets','weight_kg','temperature','carrier_name','carrier_email','driver_name','driver_phone','vehicle_registration','carrier_price','customer_price','margin','sent_at'];
+  const heads=['Ordrenr','Opprettet','Status','Kunde','Kundereferanse','Hentested','Henteadresse','Hentetid','Leveringssted','Leveringsadresse','Leveringstid','Gods','Paller','Vekt kg','Temperatur','Transportør','Transportør e-post','Sjåfør','Sjåfør telefon','Reg.nr','Innkjøpspris','Salgspris','Margin','Sendt'];
+  const q=v=>'"'+String(v??'').replaceAll('"','""')+'"';
+  const lines=[heads.map(q).join(';')];
+  for(const o of rows){
+    lines.push(cols.map(c=>q(c==='margin'?(+o.customer_price||0)-(+o.carrier_price||0):o[c])).join(';'));
+  }
+  const blob=new Blob(['\ufeff'+lines.join('\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+$('allcsv').onclick=()=>csv(orders,'GNS-Cargo-ordre-alle.csv');
+$('monthcsv').onclick=()=>{
+  const m=$('month').value;
+  if(!m) return alert('Velg måned først.');
+  csv(orders.filter(o=>(o.created_at||'').slice(0,7)===m),'GNS-Cargo-rapport-'+m+'.csv');
+};
+
+s.auth.onAuthStateChange(()=>session());
+session();
 </script>
 </body>
 </html>
