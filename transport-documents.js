@@ -79,7 +79,7 @@ window.openOrder = async id => {
     $('modalTitle').textContent = 'Transportordre / lasteliste';
     $('modalMeta').textContent = documentRef(current) + ' · Bestiller: GNS Cargo AS';
     renderCarrierSheet(current);
-    $('deleteBtn').classList.toggle('hidden', me.role !== 'admin');
+    $('deleteBtn').classList.toggle('hidden', !['admin', 'superuser'].includes(me?.role));
     $('modal').classList.remove('hidden');
   } catch (error) { note($('msg'), error.message, true); }
 };

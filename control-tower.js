@@ -43,6 +43,7 @@ function markFields(root) {
 }
 
 function enhanceOrderFields() {
+  if (typeof installLocationInputs === 'function') installLocationInputs();
   const editCustomer = $('editForm').elements.customer;
   if (editCustomer) editCustomer.required = true;
   const editPickup = $('editForm').elements.pickup_name;
@@ -207,7 +208,7 @@ function installCustomerForm() {
 }
 
 function openCustomerForm(input = $('customer')) {
-  if (!me || !['admin', 'dispatcher'].includes(me.role)) return;
+  if (!me || !['admin', 'dispatcher', 'superuser'].includes(me.role)) return;
   customerTarget = input;
   customerReturnFocus = document.activeElement;
   customerPickers.forEach(picker => picker.close());
@@ -227,7 +228,7 @@ function closeCustomerForm() {
 async function saveCustomer(event) {
   event.preventDefault();
   const button = $('saveCustomer');
-  if (button.disabled || !me || !['admin', 'dispatcher'].includes(me.role)) return;
+  if (button.disabled || !me || !['admin', 'dispatcher', 'superuser'].includes(me.role)) return;
   const values = Object.fromEntries([...new FormData(event.target)].map(([key, value]) => [key, value.trim() || null]));
   if (!values.name) { note($('customerMessage'), 'Skriv inn kundenavn.', true); return; }
   button.disabled = true;
@@ -291,6 +292,7 @@ function updateReportSummary() {
 }
 
 function refreshOrderTools() {
+  if (typeof refreshLocationTools === 'function') refreshLocationTools();
   customerPickers.forEach((picker, input) => {
     if (!input.isConnected) customerPickers.delete(input); else picker.refresh();
   });
@@ -323,47 +325,62 @@ function buildInvoiceWorkbook(ExcelJS, list, register, options) {
   workbook.creator = 'GNS Cargo AS';
   workbook.created = new Date();
   const sheet = workbook.addWorksheet('Fakturagrunnlag');
-  const headings = ['GNS-referanse', 'Kunde', 'Kundereferanse', 'Hentedato', 'Leveringsdato', 'Hentested', 'Leveringssted', 'Gods', 'Paller', 'Nettovekt (kg)', 'Salgspris (NOK)', 'Fakturastatus'];
+  const headings = ['GNS-referanse', 'Kunde', 'Kundereferanse', 'Hentedato', 'Leveringsdato', 'Hentested', 'Leveringssted', 'Gods', 'Paller', 'Nettovekt (kg)', 'Transportør', 'Inngående faktura fra transportør – avtalt frakt (NOK)', 'Til fakturering kunde – salgspris (NOK)', 'Status kundefakturering'];
   const scopeLabels = { unbilled: 'Ikke fakturert', billing: 'Til fakturering – transportørfaktura mottatt', all: 'Alle ordre', done: 'Ferdig fakturert' };
   const missing = list.filter(order => !hasPrice(order)).length;
-  sheet.mergeCells('A1:L1');
+  const hasCarrierPrice = order => order.carrier_price !== null && order.carrier_price !== undefined && order.carrier_price !== '' && Number.isFinite(Number(order.carrier_price));
+  const missingCarrier = list.filter(order => !hasCarrierPrice(order)).length;
+  sheet.mergeCells('A1:N1');
   sheet.getCell('A1').value = 'GNS CARGO AS – FAKTURAGRUNNLAG';
   sheet.getRow(1).height = 30;
   sheet.getCell('A1').font = { name: 'Calibri', size: 18, bold: true, color: { argb: 'FF071B31' } };
-  sheet.mergeCells('A2:L2');
+  sheet.mergeCells('A2:N2');
   sheet.getCell('A2').value = 'Opprettet måned: ' + (options.month || 'Alle') + ' | ' + scopeLabels[options.scope] + ' | ' + list.length + ' ordre | Lastet ned ' + osloDate(new Date());
-  sheet.mergeCells('A3:L3');
-  sheet.getCell('A3').value = 'Salgspris hentes fra ordren. Mva beregnes i fakturasystemet.' + (missing ? ' ' + missing + ' ordre mangler salgspris – kontroller de gule feltene.' : '');
-  sheet.getCell('A3').font = { italic: true, color: { argb: missing ? 'FF805600' : 'FF536273' }, size: 11 };
+  sheet.mergeCells('A3:N3');
+  sheet.getCell('A3').value = 'Blå beløpskolonne = avtalt frakt / forventet inngående faktura fra transportør. Grønn beløpskolonne = salgspris til kundefakturering. Transportørbeløpet skal ikke brukes som kundens fakturabeløp. Mva håndteres i fakturasystemet.' + (missing || missingCarrier ? ' Gule felt mangler pris.' : '');
+  sheet.getCell('A3').font = { italic: true, color: { argb: missing || missingCarrier ? 'FF805600' : 'FF536273' }, size: 11 };
+  sheet.getCell('A3').alignment = { wrapText: true, vertical: 'middle' };
+  sheet.getRow(3).height = 34;
   sheet.getRow(4).values = headings;
   const priceFormat = '#,##0.00 "NOK"';
   list.forEach(order => {
     const row = sheet.addRow([
       'GNS-' + order.order_number, order.customer || '', order.customer_reference || '', dateCell(order.pickup_date || order.pickup_at), dateCell(order.delivery_at),
       order.pickup_name || '', order.delivery_name || '', order.goods || '', order.pallets == null ? null : Number(order.pallets),
-      order.weight_kg == null ? null : Number(order.weight_kg), hasPrice(order) ? Number(order.customer_price) : null,
+      order.weight_kg == null ? null : Number(order.weight_kg), order.carrier_name || '',
+      hasCarrierPrice(order) ? Number(order.carrier_price) : null, hasPrice(order) ? Number(order.customer_price) : null,
       order.customer_invoice_sent ? 'Fakturert' : order.carrier_invoice_received ? 'Til fakturering' : 'Venter transportørfaktura'
     ]);
     row.getCell(4).numFmt = row.getCell(5).numFmt = 'dd.mm.yyyy';
     row.getCell(9).numFmt = '0';
     row.getCell(10).numFmt = '#,##0.0';
-    row.getCell(11).numFmt = priceFormat;
+    row.getCell(12).numFmt = row.getCell(13).numFmt = priceFormat;
     row.height = 32;
     row.eachCell({ includeEmpty: true }, cell => {
       cell.font = { name: 'Calibri', size: 11 };
       cell.alignment = { vertical: 'middle', wrapText: true };
       if (row.number % 2) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F6FB' } };
     });
-    if (!hasPrice(order)) row.getCell(11).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE6A3' } };
+    row.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hasCarrierPrice(order) ? 'FFEAF3FC' : 'FFFFE6A3' } };
+    row.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hasPrice(order) ? 'FFEAF8F0' : 'FFFFE6A3' } };
   });
   const lastDataRow = list.length + 4;
-  const totalRow = sheet.getRow(lastDataRow + 2);
-  totalRow.getCell(2).value = 'SUM SALGSPRIS';
-  totalRow.getCell(11).value = { formula: `SUBTOTAL(109,K5:K${lastDataRow})`, result: list.reduce((sum, o) => sum + Number(o.customer_price || 0), 0) };
-  totalRow.getCell(11).numFmt = priceFormat;
-  totalRow.font = { bold: true, name: 'Calibri', size: 12 };
-  [20, 30, 24, 15, 15, 27, 27, 23, 11, 18, 21, 30].forEach((width, i) => { sheet.getColumn(i + 1).width = width; });
-  styleReportSheet(sheet, 4, 12, lastDataRow);
+  for (const [offset, column, letter, key, label, color] of [
+    [2, 12, 'L', 'carrier_price', 'SUM INNGÅENDE FAKTURA FRA TRANSPORTØR', 'FF235781'],
+    [3, 13, 'M', 'customer_price', 'SUM TIL FAKTURERING KUNDE', 'FF176740']
+  ]) {
+    const totalRow = sheet.getRow(lastDataRow + offset);
+    sheet.mergeCells(`B${totalRow.number}:K${totalRow.number}`);
+    totalRow.getCell(2).value = label;
+    totalRow.getCell(column).value = { formula: `SUBTOTAL(109,${letter}5:${letter}${lastDataRow})`, result: list.reduce((sum, order) => sum + Number(order[key] || 0), 0) };
+    totalRow.getCell(column).numFmt = priceFormat;
+    totalRow.font = { bold: true, name: 'Calibri', size: 12, color: { argb: color } };
+  }
+  [20, 30, 24, 15, 15, 27, 27, 23, 11, 18, 28, 32, 32, 30].forEach((width, i) => { sheet.getColumn(i + 1).width = width; });
+  styleReportSheet(sheet, 4, 14, lastDataRow);
+  sheet.getRow(4).height = 48;
+  sheet.getCell('L4').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF235781' } };
+  sheet.getCell('M4').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF176740' } };
 
   const customerSheet = workbook.addWorksheet('Kundedetaljer');
   customerSheet.addRow(['Kunde', 'Organisasjonsnummer', 'Faktura-e-post', 'Adresse', 'Postnummer', 'Poststed', 'Kontaktperson', 'Telefon', 'E-post']);

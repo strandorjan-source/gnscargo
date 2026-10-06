@@ -49,6 +49,7 @@ w.URL.createObjectURL=blob=>{downloadedBlob=blob;return 'blob:qa'};w.URL.revokeO
 vm.runInContext(main,ctx);
 vm.runInContext(fs.readFileSync(root+'/order-entry.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/control-tower.js','utf8'),ctx);
+vm.runInContext(fs.readFileSync(root+'/location-register.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(require.resolve('jspdf/dist/jspdf.umd.min.js'),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/transport-documents.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/send-order.js','utf8'),ctx);
@@ -105,6 +106,11 @@ async function submitCustomer(name){d.querySelector('#customerForm [name=name]')
  const before=JSON.stringify(records.orders);const beforeMutations=mutations.length;
  await run('exportInvoiceExcel()');
  assert(downloadedBlob);assert.equal(JSON.stringify(records.orders),before);assert.equal(mutations.length,beforeMutations);
+ const exported = new w.ExcelJS.Workbook(); await exported.xlsx.load(new w.Uint8Array(await downloadedBlob.arrayBuffer())); const invoicing=exported.getWorksheet('Fakturagrunnlag');
+ assert(invoicing.getCell('L4').value.includes('Inngående faktura fra transportør')); assert(invoicing.getCell('M4').value.includes('Til fakturering kunde'));
+ const invoiceRows=[];invoicing.eachRow(row=>{if(row.getCell(1).value==='GNS-600')invoiceRows.push(row)});assert.equal(invoiceRows[0].getCell(12).value,35000);assert.equal(invoiceRows[0].getCell(13).value,46500);
+ assert.notEqual(invoiceRows[0].getCell(12).fill.fgColor.argb,invoiceRows[0].getCell(13).fill.fgColor.argb);
+ assert(invoicing.getCell('L9').value.formula.startsWith('SUBTOTAL(109,L5:'));assert(invoicing.getCell('M10').value.formula.startsWith('SUBTOTAL(109,M5:'));
  fs.writeFileSync(output+'/verified-report.xlsx',Buffer.from(await downloadedBlob.arrayBuffer()));
  assert(d.getElementById('reportMessage').textContent.includes('3 ordre'));
  // Empty result gives an explicit message and no new download.
@@ -115,7 +121,7 @@ async function submitCustomer(name){d.querySelector('#customerForm [name=name]')
  assert.equal((await run("fetchAllRows('orders','order_number')")).data.length,1005);records.orders=saved;
  assert.deepEqual(errors,[]);
  console.log('PASS: required/optional labels, customer suggestions and keyboard selection, customer save/duplicate/retry, dynamic edit/stops, report filters, Oslo date boundary, XLSX download, no invoice mutations, empty state, 1005-row pagination.');
- await verifyDocuments(); await verifySchedulingAndDispatch(); await verifyCapacityTab(); dom.window.close();
+ await verifyDocuments(); await verifySchedulingAndDispatch(); await verifyLocations(); await verifyCapacityTab(); dom.window.close();
 })().catch(e=>{console.error(e);dom.window.close();process.exitCode=1});
 
 async function verifyDocuments(){
@@ -250,4 +256,33 @@ async function verifyCapacityTab() {
  w.fetch=async()=>({ok:true,json:async()=>({service:'gns-capacity',configured:true})});capacity.click();await tick();assert(d.getElementById('capacityFrame'));
  d.getElementById('app').classList.add('hidden');await tick();assert(!d.getElementById('capacityFrame'));
  console.log('PASS: Capacity tab lazy-loads existing same-origin app, preserves order drafts, keyboard navigation, retry, and removes account view on sign-out.');
+}
+
+async function verifyLocations() {
+ records.profiles[0].role='superuser';await run('session()');
+ assert(!d.getElementById('usersBtn').classList.contains('hidden'));
+ d.getElementById('newLocationRegister').click();
+ const form=d.getElementById('locationForm'),f=form.elements;
+ f.name.value='Terminal Æ';f.location_type.value='both';f.address.value='Testveien 1';f.postal_code.value='0010';f.city.value='Oslo';f.contact_name.value='Terminalkontakt';f.phone.value='12345678';
+ await form.onsubmit({preventDefault(){},target:form});
+ assert.equal(records.locations.length,1);assert.equal(records.locations[0].postal_code,'0010');
+ assert(d.getElementById('locationModal').classList.contains('hidden'));
+ const pickup=d.querySelector('#form [name=pickup_name]');pickup.value='Terminal Æ';pickup.dispatchEvent(new w.Event('change'));
+ assert.equal(d.querySelector('#form [name=pickup_address]').value,'Testveien 1, 0010, Oslo');
+ const delivery=d.querySelector('#form [name=delivery_name]');delivery.value='Terminal Æ';delivery.dispatchEvent(new w.Event('change'));
+ assert.equal(d.querySelector('#form [name=delivery_phone]').value,'12345678');
+ d.getElementById('addPickup').click();await tick();
+ const extra=d.querySelector('#extraPickups [data-k=name]');assert.equal(extra.getAttribute('list'),'pickupLocations');extra.value='Terminal Æ';extra.dispatchEvent(new w.Event('change'));
+ assert.equal(extra.closest('.multiStop').querySelector('[data-k=contact_name]').value,'Terminalkontakt');
+ // Distinguish types and prevent duplicate names. Failed saves keep the form open.
+ d.getElementById('newLocationRegister').click();f.name.value='terminal æ';await form.onsubmit({preventDefault(){},target:form});
+ assert.equal(records.locations.length,1);assert(d.getElementById('locationMessage').textContent.includes('finnes allerede'));
+ f.name.value='Kun lossing';f.location_type.value='delivery';await form.onsubmit({preventDefault(){},target:form});
+ assert(![...d.getElementById('pickupLocations').options].some(o=>o.value==='Kun lossing'));
+ assert([...d.getElementById('deliveryLocations').options].some(o=>o.value==='Kun lossing'));
+ const oldAddress=d.querySelector('#form [name=pickup_address]').value;
+ d.querySelector('#locationRegister .edit-location[data-id="'+records.locations[0].id+'"]').click();f.address.value='Ny vei 2';await form.onsubmit({preventDefault(){},target:form});
+ assert.equal(records.locations[0].address,'Ny vei 2');assert.equal(d.querySelector('#form [name=pickup_address]').value,oldAddress);
+ assert.deepEqual(errors,[]);
+ console.log('PASS: superuser Cargo access; location pre-save/edit, type-specific suggestions, duplicate prevention, main pickup/delivery and extra-stop autofill; existing order addresses unchanged.');
 }
