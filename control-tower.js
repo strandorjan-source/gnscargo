@@ -47,10 +47,16 @@ function enhanceOrderFields() {
   if (editCustomer) editCustomer.required = true;
   const editPickup = $('editForm').elements.pickup_name;
   if (editPickup) editPickup.required = true;
+  for (const form of [$('form'), $('editForm')]) for (const key of ['pickup_date', 'vehicle_registration']) {
+    if (form.elements[key]) form.elements[key].required = true;
+  }
   $('extraPickups').querySelectorAll('[data-k=name]').forEach(input => { input.required = true; });
   $('editStops').querySelectorAll('[data-stop]').forEach(stop => {
     const name = stop.querySelector('[data-k=name]');
-    if (name) name.required = stop.querySelector('[data-k=stop_type]')?.value === 'pickup';
+    const pickup = stop.querySelector('[data-k=stop_type]')?.value === 'pickup';
+    if (name) name.required = pickup;
+    const date = stop.querySelector('[data-k=planned_date]');
+    if (date) date.required = pickup;
   });
   for (const form of [$('form'), $('editForm'), $('customerForm')]) {
     if (!form) continue;
@@ -333,7 +339,7 @@ function buildInvoiceWorkbook(ExcelJS, list, register, options) {
   const priceFormat = '#,##0.00 "NOK"';
   list.forEach(order => {
     const row = sheet.addRow([
-      'GNS-' + order.order_number, order.customer || '', order.customer_reference || '', dateCell(order.pickup_at), dateCell(order.delivery_at),
+      'GNS-' + order.order_number, order.customer || '', order.customer_reference || '', dateCell(order.pickup_date || order.pickup_at), dateCell(order.delivery_at),
       order.pickup_name || '', order.delivery_name || '', order.goods || '', order.pallets == null ? null : Number(order.pallets),
       order.weight_kg == null ? null : Number(order.weight_kg), hasPrice(order) ? Number(order.customer_price) : null,
       order.customer_invoice_sent ? 'Fakturert' : order.carrier_invoice_received ? 'Til fakturering' : 'Venter transportørfaktura'

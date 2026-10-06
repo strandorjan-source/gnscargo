@@ -10,13 +10,13 @@ const documentAmount = value => value === null || value === undefined || value =
   ? 'Ikke oppgitt'
   : new Intl.NumberFormat('nb-NO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(value)).replace(/[\u00a0\u202f]/g, ' ') + ' NOK';
 const documentNumber = value => value === null || value === undefined || value === '' ? 'Ikke oppgitt' : new Intl.NumberFormat('nb-NO', { maximumFractionDigits: 2 }).format(Number(value)).replace(/[\u00a0\u202f]/g, ' ');
-const documentTime = value => value && Number.isFinite(new Date(value).getTime()) ? new Intl.DateTimeFormat('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : 'Ikke oppgitt';
+const documentTime = (value, dateOnly) => value && Number.isFinite(new Date(value).getTime()) ? new Intl.DateTimeFormat('nb-NO', { timeZone: 'Europe/Oslo', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : dateOnly ? dateOnly.split('-').reverse().join('.') + ' (klokkeslett ikke avtalt)' : 'Ikke oppgitt';
 const pdfText = value => String(value ?? '').replace(/[\u00a0\u202f]/g, ' ').replace(/[–—]/g, '-').replace(/→/g, 'til').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
 
 function documentStops(order, type) {
   const main = {
     id: 'main-' + type, stop_type: type, stop_sequence: 1,
-    name: order[type + '_name'], address: order[type + '_address'], planned_at: order[type + '_at'],
+    name: order[type + '_name'], address: order[type + '_address'], planned_at: order[type + '_at'], planned_date: type === 'pickup' ? order.pickup_date : null,
     contact_name: order[type + '_contact'], phone: order[type + '_phone'],
     goods: order.goods, pallets: order.pallets, weight_kg: order.weight_kg,
     temperature: order.temperature, instructions: order.instructions
@@ -28,29 +28,35 @@ function documentStops(order, type) {
 }
 
 function stopLines(stop, includeGoods = true) {
-  const lines = [stop.name || 'Sted ikke oppgitt', stop.address || 'Adresse ikke oppgitt', 'Avtalt tid: ' + documentTime(stop.planned_at)];
+  const lines = [stop.name || 'Sted ikke oppgitt', stop.address || 'Adresse ikke oppgitt', 'Avtalt tid: ' + documentTime(stop.planned_at, stop.planned_date)];
   if (stop.contact_name || stop.phone) lines.push('Kontakt: ' + [stop.contact_name, stop.phone].filter(Boolean).join(' / '));
   if (includeGoods) {
     lines.push('Gods: ' + (stop.goods || 'Ikke oppgitt'));
     lines.push('Paller: ' + documentNumber(stop.pallets) + ' | Nettovekt: ' + documentNumber(stop.weight_kg) + ' kg');
-    if (stop.temperature) lines.push('Temperatur: ' + stop.temperature);
+    if (stop.stop_type === 'pickup' && stop.temperature) lines.push('Temperatur: ' + stop.temperature);
     if (stop.instructions) lines.push('Instruksjoner: ' + stop.instructions);
   }
   return lines;
 }
 
-function carrierDocumentSections(order) {
+function carrierDocumentOptions() {
+  return { includeDelivery: $('includeDelivery')?.checked !== false };
+}
+
+function carrierDocumentSections(order, options = {}) {
+  const deliveryOnly = options.deliveryOnly === true;
+  const includeDelivery = deliveryOnly || options.includeDelivery !== false;
   return [
     { title: 'BESTILLER OG AVTALT FRAKT', lines: ['Bestiller: GNS Cargo AS', 'GNS-referanse: ' + documentRef(order), 'Avtalt fraktbeløp til transportør: ' + documentAmount(order.carrier_price), 'Faktura merkes med ' + documentRef(order)] },
-    ...documentStops(order, 'pickup').map((stop, i) => ({ title: 'LASTESTED ' + (i + 1), lines: stopLines(stop) })),
-    ...documentStops(order, 'delivery').map((stop, i) => ({ title: 'LOSSESTED ' + (i + 1), lines: stopLines(stop) })),
+    ...(!deliveryOnly ? documentStops(order, 'pickup').map((stop, i) => ({ title: 'LASTESTED ' + (i + 1), lines: stopLines(stop) })) : []),
+    ...(includeDelivery ? documentStops(order, 'delivery').map((stop, i) => ({ title: 'LOSSESTED ' + (i + 1), lines: stopLines(stop) })) : [{ title: 'LOSSEINFORMASJON', lines: ['Losseopplysninger sendes separat.'] }]),
     { title: 'TRANSPORTØR OG BIL', lines: ['Transportør: ' + (order.carrier_name || 'Ikke oppgitt'), 'E-post: ' + (order.carrier_email || 'Ikke oppgitt'), 'Sjåfør: ' + (order.driver_name || 'Ikke oppgitt'), 'Sjåførtelefon: ' + (order.driver_phone || 'Ikke oppgitt'), 'Registreringsnummer: ' + (order.vehicle_registration || 'Ikke oppgitt')] }
   ];
 }
 
-function renderCarrierSheet(order) {
+function renderCarrierSheet(order, options = carrierDocumentOptions()) {
   $('sheet').innerHTML = '<div class="document-summary"><div><span>BESTILLER</span><strong>GNS Cargo AS</strong></div><div><span>GNS-REFERANSE</span><strong>' + esc(documentRef(order)) + '</strong></div><div><span>AVTALT FRAKT TIL TRANSPORTØR</span><strong>' + esc(documentAmount(order.carrier_price)) + '</strong></div></div>' +
-    carrierDocumentSections(order).slice(1).map(section => '<section class="document-section"><h3>' + esc(section.title) + '</h3>' + section.lines.map(line => '<p>' + esc(line) + '</p>').join('') + '</section>').join('') +
+    carrierDocumentSections(order, options).slice(1).map(section => '<section class="document-section"><h3>' + esc(section.title) + '</h3>' + section.lines.map(line => '<p>' + esc(line) + '</p>').join('') + '</section>').join('') +
     '<p class="muted">Faktura merkes med ' + esc(documentRef(order)) + '.</p>';
 }
 
@@ -69,6 +75,7 @@ async function getDocumentOrder(id) {
 window.openOrder = async id => {
   try {
     current = await getDocumentOrder(id);
+    $('includeDelivery').checked = true;
     $('modalTitle').textContent = 'Transportordre / lasteliste';
     $('modalMeta').textContent = documentRef(current) + ' · Bestiller: GNS Cargo AS';
     renderCarrierSheet(current);
@@ -84,7 +91,7 @@ async function refreshDocumentOrder() {
   return current;
 }
 
-function makePdf(order) {
+function makePdf(order, options = carrierDocumentOptions()) {
   const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
   const ref = documentRef(order), margin = 15, width = 180;
   let y = 0;
@@ -92,7 +99,7 @@ function makePdf(order) {
     doc.setFillColor(7, 27, 49); doc.rect(0, 0, 210, 36, 'F');
     doc.setTextColor(255); doc.setFont('helvetica', 'bold'); doc.setFontSize(18);
     doc.text('GNS CARGO AS', margin, 15);
-    doc.setFontSize(11); doc.text('TRANSPORTORDRE / LASTELISTE', margin, 24);
+    doc.setFontSize(11); doc.text(options.deliveryOnly ? 'LOSSEINFORMASJON' : 'TRANSPORTORDRE / LASTELISTE', margin, 24);
     doc.setFontSize(13); doc.text(ref, 195, 15, { align: 'right' });
     doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.text('Bestiller: GNS Cargo AS', margin, 31);
     doc.setTextColor(18, 32, 51); y = 45;
@@ -114,7 +121,7 @@ function makePdf(order) {
     y += 1;
   }
   header();
-  carrierDocumentSections(order).forEach((section, index) => {
+  carrierDocumentSections(order, options).forEach((section, index) => {
     let needed = 16;
     section.lines.forEach((line, i) => {
       const bold = index === 0 && i === 2;
@@ -135,10 +142,13 @@ function makePdf(order) {
   return doc;
 }
 
-function carrierEmail(order) {
+function carrierEmail(order, options = carrierDocumentOptions()) {
+  const deliveryOnly = options.deliveryOnly === true;
+  const title = deliveryOnly ? 'Losseinfo' : 'Transportordre';
+  const route = deliveryOnly ? '' : ' - ' + (order.pickup_name || '') + (options.includeDelivery !== false && order.delivery_name ? ' til ' + order.delivery_name : '');
   return {
-    subject: 'Transportordre ' + documentRef(order) + ' - ' + (order.pickup_name || '') + ' til ' + (order.delivery_name || ''),
-    body: ['Hei,', '', 'GNS Cargo AS bestiller transport som beskrevet nedenfor.', '', ...carrierDocumentSections(order).flatMap(section => [section.title, ...section.lines, '']), 'Vedlegg: Transportordre / lasteliste ' + documentRef(order) + '.', '', 'Vennlig hilsen', 'GNS Cargo AS'].join('\n')
+    subject: title + ' ' + documentRef(order) + route,
+    body: ['Hei,', '', deliveryOnly ? 'Her er losseopplysningene til transportordre ' + documentRef(order) + '.' : 'GNS Cargo AS bestiller transport som beskrevet nedenfor.', '', ...carrierDocumentSections(order, options).flatMap(section => [section.title, ...section.lines, '']), 'Vedlegg: ' + (deliveryOnly ? 'Losseinformasjon' : 'Transportordre / lasteliste') + ' ' + documentRef(order) + '.', '', 'Vennlig hilsen', 'GNS Cargo AS'].join('\n')
   };
 }
 
@@ -271,7 +281,7 @@ function makeCmr(order, fields = {}, route = {}, copies = 'all') {
     doc.text('Utstedt i / Country: ' + pdfText(values.issue_country || '____________'), 200, 28, { align: 'right' });
     box(1, 'Avsender: navn, adresse, land / Sender', 10, 31, 95, 25, [values.sender_name, values.sender_address].filter(Boolean).join('\n'));
     box(2, 'Mottaker: navn, adresse, land / Consignee', 10, 56, 95, 25, [values.consignee_name, values.consignee_address].filter(Boolean).join('\n'));
-    box(3, 'LASTESTED / Taking over the goods', 10, 81, 95, 25, [pickup.name, pickup.address, values.pickup_country, 'Dato/tid: ' + documentTime(pickup.planned_at), 'Ankomst: ________ Avgang: ________'].filter(Boolean).join('\n'));
+    box(3, 'LASTESTED / Taking over the goods', 10, 81, 95, 25, [pickup.name, pickup.address, values.pickup_country, 'Dato/tid: ' + documentTime(pickup.planned_at, pickup.planned_date), 'Ankomst: ________ Avgang: ________'].filter(Boolean).join('\n'));
     box(4, 'LOSSESTED / Delivery of the goods', 10, 106, 95, 23, [delivery.name, delivery.address, values.delivery_country, values.warehouse_hours && 'Åpningstid: ' + values.warehouse_hours].filter(Boolean).join('\n'));
     box(5, 'Avsenderinstruksjoner / Sender instructions', 10, 129, 95, 25, [values.sender_instructions, pickup.temperature && 'Temperatur: ' + pickup.temperature].filter(Boolean).join('\n'));
     box(6, 'Transportør: navn, adresse, land / Carrier', 105, 31, 95, 25, [values.carrier_name, values.carrier_address].filter(Boolean).join('\n'));
@@ -284,7 +294,7 @@ function makeCmr(order, fields = {}, route = {}, copies = 'all') {
       [14, 'Bruttovekt kg\nGross kg', 25, values.gross_weight], [15, 'Volum m3\nVolume m3', 25, values.volume]
     ];
     let x = 10; columns.forEach(([number, label, width, content]) => { box(number, label, x, 154, width, 36, content); x += width; });
-    box(16, 'Særlige avtaler / Special agreements', 10, 190, 95, 28, [values.agreements, delivery.planned_at && 'Avtalt levering: ' + documentTime(delivery.planned_at)].filter(Boolean).join('\n'));
+    box(16, 'Særlige avtaler / Special agreements', 10, 190, 95, 28, [values.agreements, (delivery.planned_at || delivery.planned_date) && 'Avtalt levering: ' + documentTime(delivery.planned_at, delivery.planned_date)].filter(Boolean).join('\n'));
     box(17, 'Frakt og kostnader / Carriage charges', 105, 190, 95, 39, ['Avtalt frakt til transportør: ' + documentAmount(order.carrier_price), 'Gjelder hele transportordre ' + ref, 'Bestiller / Betaler: GNS Cargo AS', values.supplementary_charges, 'Faktura merkes: ' + ref].filter(Boolean).join('\n'));
     box(18, 'Øvrige opplysninger / Other particulars', 10, 218, 95, 20, ['Reg.nr: ' + (order.vehicle_registration || '________'), 'Netto: ' + documentNumber(pickup.weight_kg) + ' kg | Paller: ' + documentNumber(pickup.pallets), values.other_details].filter(Boolean).join('\n'));
     box(19, 'Etterkrav / Cash on delivery', 105, 229, 95, 9, '');
@@ -327,5 +337,6 @@ function makeCmr(order, fields = {}, route = {}, copies = 'all') {
 }
 
 installCmrForm();
+$('includeDelivery').addEventListener('change', () => { if (current) renderCarrierSheet(current); });
 $('pdfBtn').onclick = async () => { try { const order = await refreshDocumentOrder(); makePdf(order).save('GNS-Transportordre-Lasteliste-' + order.order_number + '.pdf'); } catch (error) { alert(error.message); } };
 $('cmrBtn').onclick = openCmrForm;
