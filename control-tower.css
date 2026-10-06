@@ -1,0 +1,24 @@
+.field-legend{display:flex;gap:10px;flex-wrap:wrap;margin:14px 0;color:#536273;font-size:12px}
+.field-badge{display:inline-flex;align-items:center;border-radius:5px;padding:3px 6px;font-size:10px;font-weight:700;width:max-content;white-space:nowrap}
+.field-required{background:#fff2cf;color:#704b00;border:1px solid #d5a43b}
+.field-optional{background:#edf6ff;color:#235781;border:1px solid #9bbfdd}
+.label-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.marked-field input,.marked-field textarea,.marked-field select{background:#f5faff;border-color:#a7c6df;border-left:4px solid #6b9dc5}
+.marked-field input:required,.marked-field textarea:required,.marked-field select:required{background:#fffaf0;border-color:#d9b25d;border-left:4px solid #b78214}
+.marked-field input:focus,.marked-field textarea:focus,.marked-field select:focus{outline:2px solid #1479bd;outline-offset:2px}
+.customer-field{position:relative;min-width:0}
+.customer-entry{display:flex;gap:6px}.customer-entry input{min-width:0;flex:1}
+.customer-entry .customer-toggle{padding:9px 12px;flex-shrink:0}
+.customer-new{margin-top:7px;padding:7px 10px;font-size:12px}
+.customer-options{position:absolute;top:100%;left:0;right:0;z-index:40;background:#fff;border:1px solid #a7c6df;border-radius:8px;box-shadow:0 8px 22px #071b3126;max-height:280px;overflow:auto}
+.customer-input-wrap{position:relative}
+.customer-option{display:block;width:100%;border:0;border-bottom:1px solid #edf1f5;text-align:left;background:white;padding:11px 12px;cursor:pointer;font:inherit;color:#122033}
+.customer-option small{display:block;color:#65758a;margin-top:3px;font-size:11px}
+.customer-option:hover,.customer-option[aria-selected=true]{background:#eaf4ff}
+.customer-empty{padding:12px;color:#65758a;font-size:12px}
+.customer-help{font-size:11px;font-weight:400;margin-top:5px;display:block;color:#65758a}
+#customerModal{z-index:120}#customerModal .card{width:min(740px,100%)}
+.report-controls{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:16px 0}.report-controls label{min-width:180px;flex:1}
+.report-controls button{min-height:39px}.report-summary{padding:12px;background:#f0f6fc;border:1px solid #d4e4f1;border-radius:8px;margin-bottom:12px}
+.btn:disabled{opacity:.55;cursor:wait}.report-summary:empty{display:none}
+@media(max-width:700px){.report-controls{display:grid;grid-template-columns:1fr}.report-controls label{min-width:0}#customerModal .card{width:100%}}
