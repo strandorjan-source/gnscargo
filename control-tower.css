@@ -22,3 +22,8 @@
 .report-controls button{min-height:39px}.report-summary{padding:12px;background:#f0f6fc;border:1px solid #d4e4f1;border-radius:8px;margin-bottom:12px}
 .btn:disabled{opacity:.55;cursor:wait}.report-summary:empty{display:none}
 @media(max-width:700px){.report-controls{display:grid;grid-template-columns:1fr}.report-controls label{min-width:0}#customerModal .card{width:100%}}
+.document-summary{display:grid;grid-template-columns:1fr 1fr 1.5fr;gap:12px;padding:18px;background:#071b31;border-radius:10px;color:#fff}
+.document-summary span{display:block;font-size:10px;letter-spacing:.03em;margin-bottom:7px;color:#b9d7eb}.document-summary strong{display:block;font-size:19px}
+.document-section{border:1px solid #dce4ec;border-radius:9px;margin-top:14px;padding:0 14px 10px}.document-section h3{margin:0 -14px 10px;padding:10px 14px;background:#eef6fc;font-size:13px}.document-section p{margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+#cmrModal,#carrierEmailModal{z-index:125}#cmrModal textarea{min-height:60px}#cmrModal label{margin-bottom:5px}
+@media(max-width:700px){.document-summary{grid-template-columns:1fr}.document-summary strong{font-size:17px}}

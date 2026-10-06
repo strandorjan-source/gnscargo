@@ -22,7 +22,13 @@ function customerChoices() {
 function markFields(root) {
   root.querySelectorAll('label').forEach(label => {
     const input = label.querySelector('input, select, textarea');
-    if (!input || label.classList.contains('marked-field')) return;
+    if (!input) return;
+    if (label.classList.contains('marked-field')) {
+      const badge = label.querySelector('.field-badge');
+      const text = input.required ? 'Obligatorisk' : 'Valgfritt';
+      if (badge && badge.textContent !== text) { badge.textContent = text; badge.className = 'field-badge ' + (input.required ? 'field-required' : 'field-optional'); }
+      return;
+    }
     const heading = document.createElement('span');
     heading.className = 'label-heading';
     const title = document.createElement('span');
@@ -39,8 +45,16 @@ function markFields(root) {
 function enhanceOrderFields() {
   const editCustomer = $('editForm').elements.customer;
   if (editCustomer) editCustomer.required = true;
+  const editPickup = $('editForm').elements.pickup_name;
+  if (editPickup) editPickup.required = true;
+  $('extraPickups').querySelectorAll('[data-k=name]').forEach(input => { input.required = true; });
+  $('editStops').querySelectorAll('[data-stop]').forEach(stop => {
+    const name = stop.querySelector('[data-k=name]');
+    if (name) name.required = stop.querySelector('[data-k=stop_type]')?.value === 'pickup';
+  });
   for (const form of [$('form'), $('editForm'), $('customerForm')]) {
     if (!form) continue;
+    if (form.elements.carrier_price) { form.elements.carrier_price.step = '0.01'; form.elements.carrier_price.min = '0'; }
     markFields(form);
     const input = form.elements.customer;
     if (input && !input.dataset.customerPicker) installCustomerPicker(input);
@@ -408,6 +422,7 @@ async function exportInvoiceExcel() {
 installCustomerForm();
 enhanceOrderFields();
 for (const form of [$('form'), $('editForm')]) new MutationObserver(enhanceOrderFields).observe(form, { childList: true, subtree: true });
+$('editStops').addEventListener('change', enhanceOrderFields);
 $('newCustomerRegister').onclick = () => openCustomerForm($('customer'));
 ['month', 'reportScope', 'reportCustomer'].forEach(id => $(id).addEventListener('change', updateReportSummary));
 $('invoiceExcel').onclick = exportInvoiceExcel;
