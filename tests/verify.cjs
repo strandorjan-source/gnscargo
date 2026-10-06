@@ -26,9 +26,11 @@ const records={
  ]
 };
 let failCustomer=false;let mutations=[];
+let importedCalls=[];
+records.capacity_vehicles=[];
 function query(table){
  let action='select',payload,filters=[],sortKey,ascending=true,range=null,single=false;
- const q={select(){return q},order(key,opt={}){sortKey=key;ascending=opt.ascending!==false;return q},range(a,b){range=[a,b];return q},eq(k,v){filters.push([k,v]);return q},single(){single=true;return q},insert(p){action='insert';payload=p;return q},update(p){action='update';payload=p;return q},
+ const q={select(){return q},order(key,opt={}){sortKey=key;ascending=opt.ascending!==false;return q},range(a,b){range=[a,b];return q},eq(k,v){filters.push([k,v]);return q},single(){single=true;return q},maybeSingle(){single=true;return q},insert(p){action='insert';payload=p;return q},update(p){action='update';payload=p;return q},
  then(resolve,reject){try{
  if(action==='insert'){
    
@@ -42,7 +44,7 @@ function query(table){
  return Promise.resolve({data:single?(data[0]||null):data.map(r=>({...r})),error:null}).then(resolve,reject);
  }catch(e){return Promise.reject(e).then(resolve,reject)}}};return q;
 }
-w.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'test-user',email:'qa@example.invalid'}}}}),onAuthStateChange:()=>{},signOut:async()=>{}},from:query})};
+w.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'test-user',email:'qa@example.invalid'}}}}),onAuthStateChange:()=>{},signOut:async()=>{}},from:query,rpc:async(name,args)=>{assert.equal(name,'create_cargo_order_from_capacity');importedCalls.push(args);const data={...args.p_order,id:'capacity-created',order_number:987};records.orders.push(data);return{data:{id:data.id,order_number:data.order_number,reused:false},error:null};}})};
 w.HTMLCanvasElement.prototype.getContext=()=>null;w.alert=()=>{};w.HTMLElement.prototype.scrollIntoView=function(){};
 w.Blob=Blob;let downloadedBlob=null;
 w.URL.createObjectURL=blob=>{downloadedBlob=blob;return 'blob:qa'};w.URL.revokeObjectURL=()=>{};
@@ -55,6 +57,7 @@ vm.runInContext(fs.readFileSync(require.resolve('jspdf/dist/jspdf.umd.min.js'),'
 vm.runInContext(fs.readFileSync(root+'/transport-documents.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/send-order.js','utf8'),ctx);
 w.fetch = async () => ({ok:true,json:async()=>({service:'gns-capacity',configured:true})});
+vm.runInContext(fs.readFileSync(root+'/capacity-order.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/capacity-tab.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/vendor/exceljs-4.4.0.min.js','utf8'),ctx);
 const tick=()=>new Promise(r=>setTimeout(r,30));
@@ -256,6 +259,7 @@ async function verifyCapacityTab() {
  w.fetch=async()=>({ok:false});await d.getElementById('capacityRetry').onclick();
  assert(d.getElementById('capacityStatus').textContent.includes('kunne ikke lastes'));assert(!d.getElementById('capacityRetry').disabled);
  w.fetch=async()=>({ok:true,json:async()=>({service:'gns-capacity',configured:true})});capacity.click();await tick();assert(d.getElementById('capacityFrame'));
+ await verifyCapacityImport(d.getElementById('capacityFrame'));
  d.getElementById('app').classList.add('hidden');await tick();assert(!d.getElementById('capacityFrame'));
  console.log('PASS: Capacity tab lazy-loads existing same-origin app, preserves order drafts, keyboard navigation, retry, and removes account view on sign-out.');
 }
@@ -311,4 +315,24 @@ async function verifyCarrierAndPrivacy() {
  }
  assert.equal(run('current.pickup_phone'),'+47 99887766');
  console.log('PASS: carrier pre-save/edit/duplicate and create/edit autofill; internal pickup numbers removed from email, PDFs and CMR including copied instructions; delivery/driver phones and stored internal values retained.');
+}
+
+async function verifyCapacityImport(frame) {
+ const form=d.getElementById('form'),f=form.elements;form.reset();await tick();
+ const vehicle={id:'11111111-1111-4111-8111-111111111111',status:'Reservert',reserved_at:'2026-10-06T18:25:00.123Z',updated_at:'2026-10-06T18:25:00.123Z',carrier:'QA Transport Æ',contact:'Transport office',phone:'11223344',registration:'QA12345',trailer_number:'TRAILER123',location:'Oslo',available_at:'2026-10-08T21:30:00Z',reservation_comment:'Internal booking note'};
+ records.capacity_vehicles=[vehicle];
+ const data={type:'gns-capacity-new-order',vehicleId:vehicle.id,reservedAt:vehicle.reserved_at};
+ w.dispatchEvent(new w.MessageEvent('message',{origin:'https://evil.invalid',source:frame.contentWindow,data}));await tick();assert.equal(f.vehicle_registration.value,'');
+ w.dispatchEvent(new w.MessageEvent('message',{origin:w.location.origin,source:null,data}));await tick();assert.equal(f.vehicle_registration.value,'');
+ w.dispatchEvent(new w.MessageEvent('message',{origin:w.location.origin,source:frame.contentWindow,data}));await tick();await tick();
+ assert.equal(d.getElementById('cargoTab').getAttribute('aria-selected'),'true');assert.equal(f.vehicle_registration.value,'QA12345');assert.equal(f.trailer_number.value,'TRAILER123');assert.equal(f.carrier_contact.value,'Transport office');assert.equal(f.carrier_phone.value,'11223344');assert.equal(f.driver_name.value,'');assert.equal(f.driver_phone.value,'');assert.equal(f.pickup_name.value,'');assert.equal(f.pickup_date.value,'2026-10-08');assert.equal(f.pickup_time.value,'');assert(f.vehicle_registration.readOnly);assert.equal(f.carrier_email.value,'new@example.invalid');
+ f.customer.value='New customer';f.pickup_name.value='Exact loading site';await form.onsubmit({preventDefault(){},target:form});
+ assert.equal(importedCalls.length,1);assert.equal(importedCalls[0].p_vehicle_id,vehicle.id);assert.equal(importedCalls[0].p_reserved_at,vehicle.reserved_at);assert.equal(importedCalls[0].p_order.trailer_number,'TRAILER123');assert.equal(importedCalls[0].p_stops[0].name,'Exact loading site');assert.equal(run('capacityOrderImport'),null);assert(!w.location.search.includes('capacity_vehicle'));
+ // A handoff must not silently replace a previous order draft.
+ f.customer.value='KEEP CUSTOMER';f.pickup_name.value='KEEP PICKUP';f.vehicle_registration.value='KEEPREG';
+ w.history.replaceState({},'',run("capacityRequestUrl('"+vehicle.id+"','"+vehicle.reserved_at+"')"));await run('loadCapacityOrderRequest()');
+ assert.equal(f.vehicle_registration.value,'KEEPREG');assert.equal(f.customer.value,'KEEP CUSTOMER');assert(d.getElementById('capacityImportNotice').textContent.includes('påbegynt ordre'));
+ [...d.querySelectorAll('#capacityImportNotice button')].find(b=>b.textContent.includes('Bruk bilen')).click();assert.equal(f.vehicle_registration.value,'QA12345');assert.equal(f.customer.value,'KEEP CUSTOMER');assert.equal(f.pickup_name.value,'KEEP PICKUP');
+ form.reset();await tick();assert.equal(run('capacityOrderImport'),null);assert.equal(f.vehicle_registration.readOnly,false);
+ console.log('PASS: trusted iframe handoff opens Cargo, safe field mapping/contact separation, date-only suggestion, blank required pickup, atomic create RPC, URL cleanup and existing draft preservation.');
 }

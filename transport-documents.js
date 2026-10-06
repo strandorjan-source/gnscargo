@@ -67,7 +67,7 @@ function carrierDocumentSections(order, options = {}) {
     { title: 'BESTILLER OG AVTALT FRAKT', lines: ['Bestiller: GNS Cargo AS', 'GNS-referanse: ' + documentRef(order), 'Avtalt fraktbeløp til transportør: ' + documentAmount(order.carrier_price), 'Faktura merkes med ' + documentRef(order)] },
     ...(!deliveryOnly ? documentStops(order, 'pickup').map((stop, i) => ({ title: 'LASTESTED ' + (i + 1), lines: stopLines(stop) })) : []),
     ...(includeDelivery ? documentStops(order, 'delivery').map((stop, i) => ({ title: 'LOSSESTED ' + (i + 1), lines: stopLines(stop) })) : [{ title: 'LOSSEINFORMASJON', lines: ['Losseopplysninger sendes separat.'] }]),
-    { title: 'TRANSPORTØR OG BIL', lines: ['Transportør: ' + (order.carrier_name || 'Ikke oppgitt'), 'E-post: ' + (order.carrier_email || 'Ikke oppgitt'), 'Sjåfør: ' + (order.driver_name || 'Ikke oppgitt'), 'Sjåførtelefon: ' + (order.driver_phone || 'Ikke oppgitt'), 'Registreringsnummer: ' + (order.vehicle_registration || 'Ikke oppgitt')] }
+    { title: 'TRANSPORTØR OG BIL', lines: ['Transportør: ' + (order.carrier_name || 'Ikke oppgitt'), 'E-post: ' + (order.carrier_email || 'Ikke oppgitt'), ...(order.carrier_contact ? ['Transportørkontakt: ' + order.carrier_contact] : []), ...(order.carrier_phone ? ['Telefon transportørkontakt: ' + order.carrier_phone] : []), ...(order.trailer_number ? ['Trallenummer: ' + order.trailer_number] : []), 'Sjåfør: ' + (order.driver_name || 'Ikke oppgitt'), 'Sjåførtelefon: ' + (order.driver_phone || 'Ikke oppgitt'), 'Registreringsnummer: ' + (order.vehicle_registration || 'Ikke oppgitt')] }
   ].map(section => ({ ...section, lines: section.lines.map(line => externalDocumentText(order, line)) }));
 }
 
@@ -314,7 +314,7 @@ function makeCmr(order, fields = {}, route = {}, copies = 'all') {
     let x = 10; columns.forEach(([number, label, width, content]) => { box(number, label, x, 154, width, 36, content); x += width; });
     box(16, 'Særlige avtaler / Special agreements', 10, 190, 95, 28, [values.agreements, (delivery.planned_at || delivery.planned_date) && 'Avtalt levering: ' + documentTime(delivery.planned_at, delivery.planned_date)].filter(Boolean).join('\n'));
     box(17, 'Frakt og kostnader / Carriage charges', 105, 190, 95, 39, ['Avtalt frakt til transportør: ' + documentAmount(order.carrier_price), 'Gjelder hele transportordre ' + ref, 'Bestiller / Betaler: GNS Cargo AS', values.supplementary_charges, 'Faktura merkes: ' + ref].filter(Boolean).join('\n'));
-    box(18, 'Øvrige opplysninger / Other particulars', 10, 218, 95, 20, ['Reg.nr: ' + (order.vehicle_registration || '________'), 'Netto: ' + documentNumber(pickup.weight_kg) + ' kg | Paller: ' + documentNumber(pickup.pallets), values.other_details].filter(Boolean).join('\n'));
+    box(18, 'Øvrige opplysninger / Other particulars', 10, 218, 95, 20, ['Reg.nr: ' + (order.vehicle_registration || '________'), ...(order.trailer_number ? ['Tralle: ' + order.trailer_number] : []), 'Netto: ' + documentNumber(pickup.weight_kg) + ' kg | Paller: ' + documentNumber(pickup.pallets), values.other_details].filter(Boolean).join('\n'));
     box(19, 'Etterkrav / Cash on delivery', 105, 229, 95, 9, '');
     if (values.cash_on_delivery) { annex.push({ title: '19 Etterkrav / Cash on delivery', text: values.cash_on_delivery }); doc.setTextColor(20); doc.setFontSize(7); doc.text('Se vedlegg / See annex', 150, 236); }
     doc.setDrawColor(...copy.color); doc.rect(10, 238, 190, 11); doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...copy.color); doc.text('20', 11.5, 242);

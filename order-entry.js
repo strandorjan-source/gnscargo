@@ -98,6 +98,12 @@ $('form').onsubmit = async event => {
   button.disabled = true;
   try {
     Object.assign(order, { status: 'created', created_by_name: me.full_name || me.email, created_by_email: me.email });
+    if (typeof capacityOrderImport !== 'undefined' && capacityOrderImport) {
+      const data = await saveCapacityCargoOrder(order, stops);
+      if (data.reused) { note($('msg'), 'Reservasjonen er allerede koblet til ordre #' + data.order_number + '. Det er ikke opprettet en ekstra ordre. Åpne den eksisterende ordren for å gjøre endringer.', true); await load(); return; }
+      form.reset(); await load();
+      note($('msg'), 'Ordre #' + data.order_number + ' opprettet og koblet til den reserverte bilen i Capacity.'); return;
+    }
     const { data, error } = await s.from('orders').insert(order).select('id,order_number').single();
     if (error) throw error;
     const result = await s.from('order_stops').insert(stops.map(stop => ({ ...stop, order_id: data.id })));
@@ -124,7 +130,7 @@ window.editOrder = async id => {
   const fields = [['customer', 'Kunde'], ['customer_reference', 'Kundereferanse'], ['goods', 'Gods'], ['pallets', 'Paller', 'number'], ['weight_kg', 'Netto vekt kg', 'number'], ['temperature', 'Temperatur'],
     ['pickup_name', 'Hentested'], ['pickup_address', 'Henteadresse'], ['pickup_date', 'Hentedato', 'date'], ['pickup_time', 'Klokkeslett', 'time'], ['pickup_contact', 'Kontakt hentested'], ['pickup_phone', 'Mobilnr hentested – kun internt', 'tel'],
     ['delivery_name', 'Leveringssted'], ['delivery_address', 'Leveringsadresse'], ['delivery_at', 'Leveringstid', 'datetime-local'], ['delivery_contact', 'Kontakt levering'], ['delivery_phone', 'Telefon levering'],
-    ['carrier_name', 'Transportør'], ['carrier_email', 'Transportør e-post', 'email'], ['driver_name', 'Sjåfør'], ['driver_phone', 'Sjåfør telefon'], ['vehicle_registration', 'Reg.nr'],
+    ['carrier_name', 'Transportør'], ['carrier_email', 'Transportør e-post', 'email'], ['carrier_contact', 'Transportørkontakt'], ['carrier_phone', 'Telefon transportørkontakt', 'tel'], ['trailer_number', 'Trallenummer'], ['driver_name', 'Sjåfør'], ['driver_phone', 'Sjåfør telefon'], ['vehicle_registration', 'Reg.nr'],
     ['carrier_price', 'Avtalt frakt til transportør (NOK)', 'number'], ['customer_price', 'Salgspris', 'number'], ['instructions', 'Instruksjoner']];
   $('editFields').innerHTML = fields.map(([key, label, type = 'text']) => '<label>' + label + '<input name="' + key + '" type="' + type + '" value="' + esc(values[key] ?? '') + '"' + (['customer', 'pickup_name', 'pickup_date', 'vehicle_registration'].includes(key) ? ' required' : '') + (['weight_kg', 'carrier_price', 'customer_price'].includes(key) ? ' step="0.01"' : '') + '></label>').join('');
   // First stops use the main fields above, so users enter each pickup date only once.

@@ -61,6 +61,13 @@
       showTab(next); tabs[next].focus();
     });
   });
+  window.addEventListener('message', async event => {
+    if (event.origin !== location.origin || event.source !== frame?.contentWindow || !me || event.data?.type !== 'gns-capacity-new-order') return;
+    const { vehicleId, reservedAt } = event.data;
+    if (typeof vehicleId !== 'string' || typeof reservedAt !== 'string' || vehicleId.length > 100 || !Number.isFinite(Date.parse(reservedAt))) return;
+    history.replaceState({}, '', capacityRequestUrl(vehicleId, reservedAt));
+    showTab(0); await loadCapacityOrderRequest();
+  });
   $('capacityRetry').onclick = loadCapacity;
   // Remove the embedded account view immediately when Cargo loses access.
   new MutationObserver(() => {
