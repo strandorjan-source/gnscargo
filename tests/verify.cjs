@@ -56,6 +56,7 @@ vm.runInContext(fs.readFileSync(root+'/carrier-register.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(require.resolve('jspdf/dist/jspdf.umd.min.js'),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/transport-documents.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/send-order.js','utf8'),ctx);
+vm.runInContext(fs.readFileSync(root+'/edi-order.js','utf8'),ctx);
 w.fetch = async () => ({ok:true,json:async()=>({service:'gns-capacity',configured:true})});
 vm.runInContext(fs.readFileSync(root+'/capacity-order.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/capacity-tab.js','utf8'),ctx);
@@ -242,6 +243,7 @@ async function verifySchedulingAndDispatch() {
 
 async function verifyCapacityTab() {
  await verifyCarrierAndPrivacy();
+ await verifyEdiPreparation();
  const cargo=d.getElementById('cargoTab'), capacity=d.getElementById('capacityTab');
  assert.equal(d.querySelectorAll('#capacityFrame').length,0);
  assert.equal(d.getElementById('cargoPanel').parentElement.id,'app');
@@ -315,6 +317,43 @@ async function verifyCarrierAndPrivacy() {
  }
  assert.equal(run('current.pickup_phone'),'+47 99887766');
  console.log('PASS: carrier pre-save/edit/duplicate and create/edit autofill; internal pickup numbers removed from email, PDFs and CMR including copied instructions; delivery/driver phones and stored internal values retained.');
+}
+
+async function verifyEdiPreparation() {
+ const carrier=records.carriers[0];
+ d.querySelector('#carrierRegister .edit-carrier').click();
+ const form=d.getElementById('carrierForm');form.elements.edi_system.value='opter';
+ await form.onsubmit({preventDefault(){},target:form});
+ assert.equal(carrier.edi_system,'opter');assert(d.getElementById('carrierRegister').textContent.includes('Opter – ikke tilkoblet'));
+ const order={...JSON.parse(run('JSON.stringify(current)')),carrier_id:carrier.id,carrier_name:carrier.name,vehicle_registration:'QA12345',trailer_number:'QA-T1',customer:'INTERNAL CUSTOMER',customer_reference:'INTERNAL REFERENCE',reservation_comment:'INTERNAL COMMENT',created_by_email:'PRIVATE EMAIL',carrier_contact:'Dispatch',carrier_phone:'12344321',updated_at:'2026-10-06T19:00:00Z'};
+ const {stops,...stored}=order;records.orders.push(stored);records.order_stops.push(...stops.map(stop=>({...stop,order_id:order.id})));
+ await w.openOrder(order.id);
+ const before=mutations.length, orderBefore=JSON.stringify(records.orders);
+ await d.getElementById('sendEdiBtn').onclick();
+ assert(!d.getElementById('ediModal').classList.contains('hidden'));
+ assert(d.getElementById('ediRecipient').textContent.includes(carrier.name));
+ assert(d.getElementById('ediConnection').textContent.includes('Ingen ordre er sendt'));
+ assert(d.getElementById('confirmSendEdi').disabled);
+ const data=JSON.parse(d.getElementById('ediJson').textContent), text=JSON.stringify(data);
+ assert.equal(data.order.reference,'GNS-999');assert.equal(data.order.agreed_carrier_freight.amount,40000);
+ assert.equal(data.order.pickups.length,2);assert.equal(data.order.pickups[0].planned_at,null);assert.equal(data.order.pickups[0].planned_date,'2026-10-08');
+ assert.equal(data.order.deliveries[0].contact_phone,'44556677');assert.equal(data.order.driver_phone,'33445566');
+ for(const secret of ['99887766','99 88 77 66','88776655','88-77-66-55','60000','INTERNAL CUSTOMER','INTERNAL REFERENCE','INTERNAL COMMENT','PRIVATE EMAIL','pickup_phone','customer_price']) assert(!text.includes(secret),secret);
+ assert(!('contact_phone' in data.order.pickups[0]));assert(!('temperature' in data.order.deliveries[0]));
+ d.getElementById('downloadEdiSample').click();assert.deepEqual(JSON.parse(await downloadedBlob.text()),data);
+ assert.equal(mutations.length,before);assert.equal(JSON.stringify(records.orders),orderBefore);
+ d.getElementById('closeEdi').click();d.getElementById('includeDelivery').checked=false;
+ await d.getElementById('sendEdiBtn').onclick();const hidden=JSON.parse(d.getElementById('ediJson').textContent);
+ assert(!('deliveries' in hidden.order));assert.equal(hidden.order.delivery_information_included,false);assert(!JSON.stringify(hidden).includes('44556677'));
+ // Re-read the saved order on every opening and reject a stale carrier id.
+ stored.carrier_name='Another recipient';await d.getElementById('sendEdiBtn').onclick();
+ assert(d.getElementById('downloadEdiSample').disabled);assert.equal(d.getElementById('ediJson').textContent,'');
+ assert(d.getElementById('ediNextStep').textContent.includes('Lagre transportøren'));
+ stored.carrier_name=carrier.name;await d.getElementById('sendEdiBtn').onclick();
+ d.getElementById('app').classList.add('hidden');await tick();assert(d.getElementById('ediModal').classList.contains('hidden'));assert.equal(d.getElementById('ediJson').textContent,'');
+ await run('session()');d.getElementById('includeDelivery').checked=true;
+ assert.deepEqual(errors,[]);
+ console.log('PASS: EDI carrier preference, fresh recipient validation, honest disconnected state, allowlisted sample, internal-phone and customer privacy, optional delivery, download without send/status changes, and sign-out cleanup.');
 }
 
 async function verifyCapacityImport(frame) {

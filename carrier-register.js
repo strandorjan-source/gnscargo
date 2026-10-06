@@ -1,5 +1,6 @@
 'use strict';
 let carrierTarget = null, carrierEditId = null, carrierReturnFocus = null;
+const carrierEdiLabel = system => ({opter: 'Opter – ikke tilkoblet', timpex: 'Timpex – ikke tilkoblet'}[system] || 'EDI er ikke valgt');
 const carrierNameKey = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('nb-NO');
 function fillCarrier(input, carrier) {
   input.value = carrier.name;
@@ -20,7 +21,7 @@ function installCarrierInputs() {
 }
 function refreshCarrierTools() {
   $('carrierList').replaceChildren(...carriers.map(row => new Option([row.org_number, row.email].filter(Boolean).join(' · '), row.name)));
-  $('carrierRegister').innerHTML = carriers.map(row => '<div class="registerItem"><div class="toolbar"><b>' + esc(row.name) + '</b><button type="button" class="btn white edit-carrier" data-id="' + esc(row.id) + '">Rediger</button></div><div class="muted">' + esc([row.org_number, row.phone, row.email].filter(Boolean).join(' · ')) + '</div></div>').join('') || '<div class="muted">Ingen transportører ennå. Bruk «Ny transportør» for å lagre dem på forhånd.</div>';
+  $('carrierRegister').innerHTML = carriers.map(row => '<div class="registerItem"><div class="toolbar"><b>' + esc(row.name) + '</b><button type="button" class="btn white edit-carrier" data-id="' + esc(row.id) + '">Rediger</button></div><div class="muted">' + esc([row.org_number, row.phone, row.email, carrierEdiLabel(row.edi_system)].filter(Boolean).join(' · ')) + '</div></div>').join('') || '<div class="muted">Ingen transportører ennå. Bruk «Ny transportør» for å lagre dem på forhånd.</div>';
   $('carrierRegister').querySelectorAll('.edit-carrier').forEach(button => button.onclick = () => openCarrierForm(null, carriers.find(row => String(row.id) === button.dataset.id)));
   installCarrierInputs();
 }
@@ -40,7 +41,7 @@ function closeCarrierForm() {
 function installCarrierForm() {
   const modal = document.createElement('div'); modal.id = 'carrierModal'; modal.className = 'modal hidden';
   modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true'); modal.setAttribute('aria-labelledby', 'carrierTitle');
-  modal.innerHTML = '<div class="card"><div class="toolbar"><h2 id="carrierTitle">Ny transportør</h2><button type="button" class="btn white" id="closeCarrier">Lukk</button></div><p class="muted">Lagre transportører på forhånd og velg dem på nye eller eksisterende ordrer. E-post fylles ut automatisk. Registerendringer endrer ikke tidligere ordrer.</p><div id="carrierMessage" role="status"></div><form id="carrierForm"><div class="grid"><label>Transportørnavn<input name="name" required maxlength="200" autocomplete="organization"></label><label>Organisasjonsnummer<input name="org_number" maxlength="40"></label><label>E-post for transportordre<input name="email" type="email" maxlength="254"></label><label>Telefon<input name="phone" type="tel" maxlength="50"></label></div><label style="margin-top:12px">Interne merknader<textarea name="notes" maxlength="2000"></textarea></label><div class="actions" style="margin-top:14px"><button type="submit" id="saveCarrier" class="btn blue">Lagre transportør</button><button type="button" id="cancelCarrier" class="btn white">Avbryt</button></div></form></div>';
+  modal.innerHTML = '<div class="card"><div class="toolbar"><h2 id="carrierTitle">Ny transportør</h2><button type="button" class="btn white" id="closeCarrier">Lukk</button></div><p class="muted">Lagre transportører på forhånd og velg dem på nye eller eksisterende ordrer. E-post fylles ut automatisk. Registerendringer endrer ikke tidligere ordrer.</p><div id="carrierMessage" role="status"></div><form id="carrierForm"><div class="grid"><label>Transportørnavn<input name="name" required maxlength="200" autocomplete="organization"></label><label>Organisasjonsnummer<input name="org_number" maxlength="40"></label><label>E-post for transportordre<input name="email" type="email" maxlength="254"></label><label>Telefon<input name="phone" type="tel" maxlength="50"></label><label>EDI-system<select name="edi_system"><option value="">Ikke valgt</option><option value="opter">Opter</option><option value="timpex">Timpex</option></select></label></div><p class="muted">Valg av EDI-system klargjør testgrunnlaget. Sending må aktiveres etter avtale med mottakeren. API-nøkler skal ikke legges i dette registeret.</p><label style="margin-top:12px">Interne merknader<textarea name="notes" maxlength="2000"></textarea></label><div class="actions" style="margin-top:14px"><button type="submit" id="saveCarrier" class="btn blue">Lagre transportør</button><button type="button" id="cancelCarrier" class="btn white">Avbryt</button></div></form></div>';
   document.body.append(modal); $('closeCarrier').onclick = $('cancelCarrier').onclick = closeCarrierForm;
   modal.addEventListener('keydown', event => {
     if (event.key === 'Escape') closeCarrierForm();
