@@ -29,7 +29,8 @@ function documentStops(order, type) {
 
 function stopLines(stop, includeGoods = true) {
   const lines = [stop.name || 'Sted ikke oppgitt', stop.address || 'Adresse ikke oppgitt', 'Avtalt tid: ' + documentTime(stop.planned_at, stop.planned_date)];
-  if (stop.contact_name || stop.phone) lines.push('Kontakt: ' + [stop.contact_name, stop.phone].filter(Boolean).join(' / '));
+  const externalPhone = stop.stop_type === 'pickup' ? '' : stop.phone;
+  if (stop.contact_name || externalPhone) lines.push('Kontakt: ' + [stop.contact_name, externalPhone].filter(Boolean).join(' / '));
   if (includeGoods) {
     lines.push('Gods: ' + (stop.goods || 'Ikke oppgitt'));
     lines.push('Paller: ' + documentNumber(stop.pallets) + ' | Nettovekt: ' + documentNumber(stop.weight_kg) + ' kg');
@@ -37,6 +38,22 @@ function stopLines(stop, includeGoods = true) {
     if (stop.instructions) lines.push('Instruksjoner: ' + stop.instructions);
   }
   return lines;
+}
+
+// Scrub known internal pickup numbers even when copied into instructions/CMR text.
+function externalDocumentText(order, value) {
+  let text = String(value ?? '');
+  const phones = [order.pickup_phone, ...(order.stops || []).filter(stop => stop.stop_type === 'pickup').map(stop => stop.phone)];
+  for (const phone of phones) {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (digits.length < 7) continue;
+    const variants = [digits, ...(digits.length === 10 && digits.startsWith('47') ? [digits.slice(2)] : [])];
+    for (const number of variants) {
+      const pattern = '(?<![0-9])(?:\\+|00)?' + number.split('').join('[\\s().-]*') + '(?![0-9])';
+      text = text.replace(new RegExp(pattern, 'g'), '');
+    }
+  }
+  return text;
 }
 
 function carrierDocumentOptions() {
@@ -51,7 +68,7 @@ function carrierDocumentSections(order, options = {}) {
     ...(!deliveryOnly ? documentStops(order, 'pickup').map((stop, i) => ({ title: 'LASTESTED ' + (i + 1), lines: stopLines(stop) })) : []),
     ...(includeDelivery ? documentStops(order, 'delivery').map((stop, i) => ({ title: 'LOSSESTED ' + (i + 1), lines: stopLines(stop) })) : [{ title: 'LOSSEINFORMASJON', lines: ['Losseopplysninger sendes separat.'] }]),
     { title: 'TRANSPORTØR OG BIL', lines: ['Transportør: ' + (order.carrier_name || 'Ikke oppgitt'), 'E-post: ' + (order.carrier_email || 'Ikke oppgitt'), 'Sjåfør: ' + (order.driver_name || 'Ikke oppgitt'), 'Sjåførtelefon: ' + (order.driver_phone || 'Ikke oppgitt'), 'Registreringsnummer: ' + (order.vehicle_registration || 'Ikke oppgitt')] }
-  ];
+  ].map(section => ({ ...section, lines: section.lines.map(line => externalDocumentText(order, line)) }));
 }
 
 function renderCarrierSheet(order, options = carrierDocumentOptions()) {
@@ -147,7 +164,7 @@ function carrierEmail(order, options = carrierDocumentOptions()) {
   const title = deliveryOnly ? 'Losseinfo' : 'Transportordre';
   const route = deliveryOnly ? '' : ' - ' + (order.pickup_name || '') + (options.includeDelivery !== false && order.delivery_name ? ' til ' + order.delivery_name : '');
   return {
-    subject: title + ' ' + documentRef(order) + route,
+    subject: externalDocumentText(order, title + ' ' + documentRef(order) + route),
     body: ['Hei,', '', deliveryOnly ? 'Her er losseopplysningene til transportordre ' + documentRef(order) + '.' : 'GNS Cargo AS bestiller transport som beskrevet nedenfor.', '', ...carrierDocumentSections(order, options).flatMap(section => [section.title, ...section.lines, '']), 'Vedlegg: ' + (deliveryOnly ? 'Losseinformasjon' : 'Transportordre / lasteliste') + ' ' + documentRef(order) + '.', '', 'Vennlig hilsen', 'GNS Cargo AS'].join('\n')
   };
 }
@@ -255,6 +272,7 @@ function makeCmr(order, fields = {}, route = {}, copies = 'all') {
     if (copyIndex) doc.addPage();
     const annex = [];
     function box(number, label, x, y, width, height, content = '') {
+      content = externalDocumentText(order, content);
       doc.setDrawColor(...copy.color); doc.setLineWidth(.3); doc.rect(x, y, width, height);
       doc.setTextColor(...copy.color); doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.text(String(number), x + 1.5, y + 4);
       doc.setFontSize(6.8);

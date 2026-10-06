@@ -34,6 +34,7 @@ function readOrderForm(form) {
   delete values.pickup_time;
   values.delivery_at = values.delivery_at ? new Date(values.delivery_at).toISOString() : null;
   for (const key of ['pallets', 'weight_kg', 'carrier_price', 'customer_price']) values[key] = values[key] === '' ? null : Number(values[key]);
+  values.carrier_id = carriers.find(carrier => String(carrier.name).trim().toLocaleLowerCase('nb-NO') === String(values.carrier_name || '').trim().toLocaleLowerCase('nb-NO'))?.id || null;
   return values;
 }
 
@@ -43,7 +44,7 @@ function stopFields(type, stop = {}) {
     ['name', 'Sted', 'text', stop.name, type === 'pickup'], ['address', 'Adresse', 'text', stop.address],
     ['planned_date', type === 'pickup' ? 'Hentedato' : 'Leveringsdato', 'date', stop.planned_date || dateTime.slice(0, 10), type === 'pickup'],
     ['planned_time', 'Klokkeslett', 'time', dateTime.slice(11, 16)],
-    ['contact_name', 'Kontakt', 'text', stop.contact_name], ['phone', 'Telefon', 'text', stop.phone],
+    ['contact_name', 'Kontakt', 'text', stop.contact_name], ['phone', type === 'pickup' ? 'Mobilnr – kun internt' : 'Telefon', 'tel', stop.phone],
     ['goods', 'Gods', 'text', stop.goods], ['pallets', 'Paller', 'number', stop.pallets], ['weight_kg', 'Netto kg', 'number', stop.weight_kg],
     ...(type === 'pickup' ? [['temperature', 'Temperatur', 'text', stop.temperature]] : []),
     ['instructions', 'Instruksjoner', 'text', stop.instructions]
@@ -121,7 +122,7 @@ window.editOrder = async id => {
   const pickupDateTime = osloDateTime(current.pickup_at);
   const values = { ...current, pickup_date: current.pickup_date || pickupDateTime.slice(0, 10), pickup_time: pickupDateTime.slice(11, 16), delivery_at: local(current.delivery_at) };
   const fields = [['customer', 'Kunde'], ['customer_reference', 'Kundereferanse'], ['goods', 'Gods'], ['pallets', 'Paller', 'number'], ['weight_kg', 'Netto vekt kg', 'number'], ['temperature', 'Temperatur'],
-    ['pickup_name', 'Hentested'], ['pickup_address', 'Henteadresse'], ['pickup_date', 'Hentedato', 'date'], ['pickup_time', 'Klokkeslett', 'time'], ['pickup_contact', 'Kontakt hentested'], ['pickup_phone', 'Telefon hentested'],
+    ['pickup_name', 'Hentested'], ['pickup_address', 'Henteadresse'], ['pickup_date', 'Hentedato', 'date'], ['pickup_time', 'Klokkeslett', 'time'], ['pickup_contact', 'Kontakt hentested'], ['pickup_phone', 'Mobilnr hentested – kun internt', 'tel'],
     ['delivery_name', 'Leveringssted'], ['delivery_address', 'Leveringsadresse'], ['delivery_at', 'Leveringstid', 'datetime-local'], ['delivery_contact', 'Kontakt levering'], ['delivery_phone', 'Telefon levering'],
     ['carrier_name', 'Transportør'], ['carrier_email', 'Transportør e-post', 'email'], ['driver_name', 'Sjåfør'], ['driver_phone', 'Sjåfør telefon'], ['vehicle_registration', 'Reg.nr'],
     ['carrier_price', 'Avtalt frakt til transportør (NOK)', 'number'], ['customer_price', 'Salgspris', 'number'], ['instructions', 'Instruksjoner']];

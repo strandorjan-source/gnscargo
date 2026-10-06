@@ -43,6 +43,7 @@ function markFields(root) {
 }
 
 function enhanceOrderFields() {
+  if (typeof installCarrierInputs === 'function') installCarrierInputs();
   if (typeof installLocationInputs === 'function') installLocationInputs();
   const editCustomer = $('editForm').elements.customer;
   if (editCustomer) editCustomer.required = true;
@@ -292,6 +293,7 @@ function updateReportSummary() {
 }
 
 function refreshOrderTools() {
+  if (typeof refreshCarrierTools === 'function') refreshCarrierTools();
   if (typeof refreshLocationTools === 'function') refreshLocationTools();
   customerPickers.forEach((picker, input) => {
     if (!input.isConnected) customerPickers.delete(input); else picker.refresh();

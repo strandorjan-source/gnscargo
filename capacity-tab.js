@@ -16,6 +16,7 @@
       panels[i].classList.toggle('hidden', i !== index);
     });
     if (index === 1 && !frame) loadCapacity();
+    if (index === 0 && frame) load();
   }
 
   async function loadCapacity() {

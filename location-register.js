@@ -32,7 +32,7 @@ function installLocationInputs() {
       if (input.dataset.locationPicker) return;
       input.dataset.locationPicker = 'true';
       const choose = () => {
-        const place = locations.find(place => locationNameKey(place.name) === locationNameKey(input.value));
+        const place = locations.find(place => (place.location_type === 'both' || place.location_type === input.dataset.locationType) && locationNameKey(place.name) === locationNameKey(input.value));
         if (place) fillLocation(input, place);
       };
       input.addEventListener('change', choose);
@@ -50,20 +50,23 @@ function refreshLocationTools() {
     list.replaceChildren(...locations.filter(place => !place.location_type || place.location_type === 'both' || place.location_type === type)
       .map(place => new Option(locationAddress(place), place.name)));
   }
-  $('locationRegister').innerHTML = locations.map(place => '<div class="registerItem"><div class="toolbar"><b>' + esc(place.name) + '</b><button type="button" class="btn white edit-location" data-id="' + esc(place.id) + '">Rediger</button></div><div class="muted">' + esc(locationTypes[place.location_type] || locationTypes.both) + '</div><div class="muted">' + esc(locationAddress(place)) + '</div><div class="muted">' + esc([place.contact_name, place.phone].filter(Boolean).join(' · ')) + '</div></div>').join('') || '<div class="muted">Ingen steder ennå. Forhåndslagre laste- og lossesteder med knappen ovenfor.</div>';
-  $('locationRegister').querySelectorAll('.edit-location').forEach(button => button.onclick = () => openLocationForm(null, locations.find(place => place.id === button.dataset.id)));
+  for (const [type, id] of [['pickup', 'locationRegister'], ['delivery', 'deliveryLocationRegister']]) {
+    const register = $(id), filtered = locations.filter(place => place.location_type === type || place.location_type === 'both');
+    register.innerHTML = filtered.map(place => '<div class="registerItem"><div class="toolbar"><b>' + esc(place.name) + '</b><button type="button" class="btn white edit-location" data-id="' + esc(place.id) + '">Rediger</button></div><div class="muted">' + esc(locationAddress(place)) + '</div><div class="muted">' + esc([place.contact_name, place.phone].filter(Boolean).join(' · ')) + (type === 'pickup' && place.phone ? ' · Kun internt' : '') + '</div></div>').join('') || '<div class="muted">Ingen ' + (type === 'pickup' ? 'lastesteder' : 'lossesteder') + ' ennå.</div>';
+    register.querySelectorAll('.edit-location').forEach(button => button.onclick = () => openLocationForm(null, locations.find(place => place.id === button.dataset.id), type));
+  }
   installLocationInputs();
 }
 
-function openLocationForm(input = null, place = null) {
+function openLocationForm(input = null, place = null, type = 'pickup') {
   if (!me || !['admin', 'dispatcher', 'superuser'].includes(me.role)) return;
   locationTarget = input; locationEditId = place?.id || null; locationReturnFocus = document.activeElement;
   const form = $('locationForm'); form.reset();
-  $('locationTitle').textContent = place ? 'Rediger sted' : 'Nytt laste-/lossested';
+  $('locationTitle').textContent = place ? 'Rediger sted' : (input?.dataset.locationType || type) === 'delivery' ? 'Nytt lossested' : 'Nytt lastested';
   if (place) for (const [key, value] of Object.entries(place)) { if (form.elements[key]) form.elements[key].value = value ?? ''; }
   else {
     form.elements.name.value = input?.value.trim() || '';
-    form.elements.location_type.value = input?.dataset.locationType || 'both';
+    form.elements.location_type.value = input?.dataset.locationType || type;
     if (input?.name) {
       const prefix = input.name.split('_')[0], source = input.form.elements;
       form.elements.address.value = source[prefix + '_address'].value;
@@ -85,7 +88,7 @@ function closeLocationForm() {
 function installLocationForm() {
   const modal = document.createElement('div'); modal.id = 'locationModal'; modal.className = 'modal hidden';
   modal.setAttribute('role', 'dialog'); modal.setAttribute('aria-modal', 'true'); modal.setAttribute('aria-labelledby', 'locationTitle');
-  modal.innerHTML = '<div class="card"><div class="toolbar"><h2 id="locationTitle">Nytt laste-/lossested</h2><button type="button" class="btn white" id="closeLocation">Lukk</button></div><p class="muted">Forhåndslagrede steder kan velges ved henting, lossing og ekstra stopp. Endringer i registeret endrer ikke tidligere ordrer.</p><div id="locationMessage" role="status"></div><form id="locationForm"><div class="grid"><label>Stedsnavn<input name="name" required maxlength="200"></label><label>Brukes som<select name="location_type" required><option value="both">Laste- og lossested</option><option value="pickup">Lastested</option><option value="delivery">Lossested</option></select></label><label>Adresse<input name="address" maxlength="300"></label><label>Postnummer<input name="postal_code" maxlength="20"></label><label>Poststed<input name="city" maxlength="100"></label><label>Kontaktperson<input name="contact_name" maxlength="200"></label><label>Telefon<input name="phone" type="tel" maxlength="50"></label><label>E-post<input name="email" type="email" maxlength="254"></label></div><label style="margin-top:12px">Stedsinstruksjoner<textarea name="instructions" maxlength="4000"></textarea></label><div class="actions" style="margin-top:14px"><button type="submit" id="saveLocation" class="btn blue">Lagre sted</button><button type="button" id="cancelLocation" class="btn white">Avbryt</button></div></form></div>';
+  modal.innerHTML = '<div class="card"><div class="toolbar"><h2 id="locationTitle">Nytt laste-/lossested</h2><button type="button" class="btn white" id="closeLocation">Lukk</button></div><p class="muted">Forhåndslagrede steder kan velges ved henting, lossing og ekstra stopp. Endringer i registeret endrer ikke tidligere ordrer.</p><div id="locationMessage" role="status"></div><form id="locationForm"><div class="grid"><label>Stedsnavn<input name="name" required maxlength="200"></label><label>Brukes som<select name="location_type" required><option value="both">Laste- og lossested</option><option value="pickup">Lastested</option><option value="delivery">Lossested</option></select></label><label>Adresse<input name="address" maxlength="300"></label><label>Postnummer<input name="postal_code" maxlength="20"></label><label>Poststed<input name="city" maxlength="100"></label><label>Kontaktperson<input name="contact_name" maxlength="200"></label><label>Telefon (lastested: kun internt)<input name="phone" type="tel" maxlength="50"></label><label>E-post<input name="email" type="email" maxlength="254"></label></div><label style="margin-top:12px">Stedsinstruksjoner<textarea name="instructions" maxlength="4000"></textarea></label><div class="actions" style="margin-top:14px"><button type="submit" id="saveLocation" class="btn blue">Lagre sted</button><button type="button" id="cancelLocation" class="btn white">Avbryt</button></div></form></div>';
   document.body.append(modal);
   $('closeLocation').onclick = $('cancelLocation').onclick = closeLocationForm;
   modal.addEventListener('keydown', event => {
@@ -116,6 +119,22 @@ function installLocationForm() {
 }
 
 installLocationForm();
-$('newLocationRegister').onclick = () => openLocationForm();
+$('newLocationRegister').onclick = () => openLocationForm(null, null, 'pickup');
+$('newDeliveryLocationRegister').onclick = () => openLocationForm(null, null, 'delivery');
+const locationTabs = [$('pickupLocationTab'), $('deliveryLocationTab')];
+function selectLocationTab(index) {
+  locationTabs.forEach((tab, i) => {
+    tab.setAttribute('aria-selected', String(i === index)); tab.tabIndex = i === index ? 0 : -1;
+    tab.classList.toggle('active', i === index); $(tab.getAttribute('aria-controls')).classList.toggle('hidden', i !== index);
+  });
+}
+locationTabs.forEach((tab, index) => {
+  tab.onclick = () => selectLocationTab(index);
+  tab.onkeydown = event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault(); const next = event.key === 'Home' ? 0 : event.key === 'End' ? 1 : 1 - index;
+    selectLocationTab(next); locationTabs[next].focus();
+  };
+});
 $('editStops').addEventListener('change', installLocationInputs);
 refreshLocationTools();

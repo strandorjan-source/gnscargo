@@ -50,6 +50,7 @@ vm.runInContext(main,ctx);
 vm.runInContext(fs.readFileSync(root+'/order-entry.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/control-tower.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/location-register.js','utf8'),ctx);
+vm.runInContext(fs.readFileSync(root+'/carrier-register.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(require.resolve('jspdf/dist/jspdf.umd.min.js'),'utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/transport-documents.js','utf8'),ctx);
 vm.runInContext(fs.readFileSync(root+'/send-order.js','utf8'),ctx);
@@ -237,6 +238,7 @@ async function verifySchedulingAndDispatch() {
 }
 
 async function verifyCapacityTab() {
+ await verifyCarrierAndPrivacy();
  const cargo=d.getElementById('cargoTab'), capacity=d.getElementById('capacityTab');
  assert.equal(d.querySelectorAll('#capacityFrame').length,0);
  assert.equal(d.getElementById('cargoPanel').parentElement.id,'app');
@@ -284,5 +286,29 @@ async function verifyLocations() {
  d.querySelector('#locationRegister .edit-location[data-id="'+records.locations[0].id+'"]').click();f.address.value='Ny vei 2';await form.onsubmit({preventDefault(){},target:form});
  assert.equal(records.locations[0].address,'Ny vei 2');assert.equal(d.querySelector('#form [name=pickup_address]').value,oldAddress);
  assert.deepEqual(errors,[]);
- console.log('PASS: superuser Cargo access; location pre-save/edit, type-specific suggestions, duplicate prevention, main pickup/delivery and extra-stop autofill; existing order addresses unchanged.');
+ d.getElementById('deliveryLocationTab').click();assert(d.getElementById('pickupLocationPanel').classList.contains('hidden'));assert(!d.getElementById('deliveryLocationPanel').classList.contains('hidden'));
+ assert(d.getElementById('deliveryLocationRegister').textContent.includes('Kun lossing'));assert(!d.getElementById('locationRegister').textContent.includes('Kun lossing'));
+ d.getElementById('newDeliveryLocationRegister').click();assert.equal(f.location_type.value,'delivery');d.getElementById('closeLocation').click();
+ d.getElementById('pickupLocationTab').click();d.getElementById('newLocationRegister').click();assert.equal(f.location_type.value,'pickup');d.getElementById('closeLocation').click();
+ console.log('PASS: separate pickup/delivery tabs with independent defaults; superuser Cargo access; location pre-save/edit, type-specific suggestions, duplicate prevention, main pickup/delivery and extra-stop autofill; existing order addresses unchanged.');
+}
+
+async function verifyCarrierAndPrivacy() {
+ d.getElementById('newCarrierRegister').click();
+ const form=d.getElementById('carrierForm'), f=form.elements;
+ f.name.value='QA Transport Æ';f.email.value='booking@example.invalid';f.phone.value='77665544';f.org_number.value='123456789';
+ await form.onsubmit({preventDefault(){},target:form});assert.equal(records.carriers.length,1);
+ const input=d.querySelector('#form [name=carrier_name]');input.value='QA Transport Æ';input.dispatchEvent(new w.Event('change'));
+ assert.equal(d.querySelector('#form [name=carrier_email]').value,'booking@example.invalid');
+ await run("editOrder('o1')");await tick();
+ const edit=d.querySelector('#editForm [name=carrier_name]');assert.equal(edit.getAttribute('list'),'carrierList');edit.value='QA Transport Æ';edit.dispatchEvent(new w.Event('change'));assert.equal(d.querySelector('#editForm [name=carrier_email]').value,'booking@example.invalid');
+ d.getElementById('newCarrierRegister').click();f.name.value='  qa transport æ ';await form.onsubmit({preventDefault(){},target:form});assert.equal(records.carriers.length,1);assert(d.getElementById('carrierMessage').textContent.includes('allerede'));
+ d.getElementById('closeCarrier').click();d.querySelector('#carrierRegister .edit-carrier').click();f.email.value='new@example.invalid';await form.onsubmit({preventDefault(){},target:form});assert.equal(records.carriers[0].email,'new@example.invalid');assert.equal(d.querySelector('#editForm [name=carrier_email]').value,'booking@example.invalid');
+ run("current={id:'privacy',order_number:999,pickup_name:'Pickup',pickup_phone:'+47 99887766',pickup_contact:'Contact',pickup_date:'2026-10-08',delivery_name:'Delivery',delivery_phone:'44556677',driver_phone:'33445566',carrier_price:40000,customer_price:60000,instructions:'Ring +47 99 88 77 66',stops:[{id:'extra',stop_type:'pickup',stop_sequence:2,name:'Extra',phone:'88776655',instructions:'Call 88-77-66-55'}]}");
+ const email=run('carrierEmail(current,{includeDelivery:true}).body');assert(!/99.?88.?77.?66|88.?77.?66.?55/.test(email));assert(email.includes('44556677'));assert(email.includes('33445566'));
+ for(const expression of ['makePdf(current).output()', 'makeCmr(current,{sender_instructions:"Call 99887766",other_details:"88 77 66 55"}).output()']) {
+   const pdf=run(expression);assert(!pdf.includes('99887766'));assert(!pdf.includes('99 88 77 66'));assert(!pdf.includes('88776655'));assert(!pdf.includes('88 77 66 55'));
+ }
+ assert.equal(run('current.pickup_phone'),'+47 99887766');
+ console.log('PASS: carrier pre-save/edit/duplicate and create/edit autofill; internal pickup numbers removed from email, PDFs and CMR including copied instructions; delivery/driver phones and stored internal values retained.');
 }
