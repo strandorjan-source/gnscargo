@@ -1,5 +1,13 @@
 /* Order entry: pickup date is required, while the clock time may remain unknown. */
 'use strict';
+let editingOrderSnapshot = null, newOrderRequestId = null;
+
+async function patchCargoOrder(order, values) {
+  const { data, error } = await s.rpc('save_cargo_order', { p_id: order.id, p_expected_revision: order.revision, p_request_id: null, p_order: values, p_stops: null });
+  if (error) throw error;
+  return data;
+}
+
 
 function osloDateTime(value) {
   if (!value) return '';
@@ -101,18 +109,19 @@ $('form').onsubmit = async event => {
   if (!form.reportValidity()) return;
   button.disabled = true;
   try {
-    Object.assign(order, { status: 'created', created_by_name: me.full_name || me.email, created_by_email: me.email });
+    // Creator, responsible dispatcher and history are assigned by the database.
     if (typeof capacityOrderImport !== 'undefined' && capacityOrderImport) {
       const data = await saveCapacityCargoOrder(order, stops);
       if (data.reused) { note($('msg'), 'Reservasjonen er allerede koblet til ordre #' + data.order_number + '. Det er ikke opprettet en ekstra ordre. Åpne den eksisterende ordren for å gjøre endringer.', true); await load(); return; }
       form.reset(); await load();
       note($('msg'), 'Ordre #' + data.order_number + ' opprettet og koblet til den reserverte bilen i Capacity.'); return;
     }
-    const { data, error } = await s.from('orders').insert(order).select('id,order_number').single();
+    newOrderRequestId ||= crypto.randomUUID();
+    const { data, error } = await s.rpc('save_cargo_order', {
+      p_id: null, p_expected_revision: null, p_request_id: newOrderRequestId, p_order: order, p_stops: stops
+    });
     if (error) throw error;
-    const result = await s.from('order_stops').insert(stops.map(stop => ({ ...stop, order_id: data.id })));
-    const message = 'Ordre #' + data.order_number + ' opprettet.';
-    note($('msg'), result.error ? message + ' Stoppene kunne ikke lagres: ' + result.error.message : message, !!result.error);
+    note($('msg'), data.reused ? 'Ordre #' + data.order_number + ' var allerede lagret. Ingen dobbeltordre er opprettet. Åpne ordren for eventuelle videre endringer.' : 'Ordre #' + data.order_number + ' og alle stopp er lagret.');
     form.reset();
     await load();
   } catch (error) { note($('msg'), error.message, true); }
@@ -120,15 +129,17 @@ $('form').onsubmit = async event => {
 };
 
 $('form').addEventListener('reset', () => {
+  newOrderRequestId = null;
   extraStops = []; $('extraPickups').replaceChildren(); $('extraDeliveries').replaceChildren();
   setTimeout(totals, 0);
 });
 
 window.editOrder = async id => {
-  const order = orders.find(item => item.id === id);
-  const { data: stops, error } = await s.from('order_stops').select('*').eq('order_id', id).order('stop_sequence');
-  if (error) { alert('Stoppene kunne ikke hentes: ' + error.message); return; }
-  current = { ...order, stops: stops || [] };
+  const { data: order, error } = await s.rpc('cargo_order_snapshot', { p_id: id });
+  if (error || !order) { alert('Ordren kunne ikke hentes: ' + (error?.message || 'Ingen tilgang.')); return; }
+  if (order.status === 'cancelled') { alert('Ordren er kansellert. Bruk Oppfølging for å lese historikken.'); return; }
+  editingOrderSnapshot = structuredClone(order);
+  current = { ...order, stops: order.stops || [] };
   const pickupDateTime = osloDateTime(current.pickup_at);
   const values = { ...current, pickup_date: current.pickup_date || pickupDateTime.slice(0, 10), pickup_time: pickupDateTime.slice(11, 16), delivery_at: local(current.delivery_at) };
   const fields = [['customer', 'Kunde'], ['customer_reference', 'Kundereferanse'], ['goods', 'Gods'], ['pallets', 'Paller', 'number'], ['weight_kg', 'Netto vekt kg', 'number'], ['temperature', 'Temperatur'],
@@ -167,17 +178,27 @@ $('editForm').onsubmit = async event => {
   try {
     values = readOrderForm(form);
     updates = [...$('editStops').querySelectorAll('[data-stop]')].map(el => ({ id: el.dataset.stop, values: readStopForm(el, el.querySelector('[data-k=stop_type]').value) }));
-    for (const stop of current.stops.filter(item => Number(item.stop_sequence) === 1)) updates.push({ id: stop.id, values: primaryStop(values, stop.stop_type) });
+    // Keep all stop IDs and non-form fields from the same immutable edit snapshot.
+    if (!editingOrderSnapshot) throw new Error('Åpne ordren på nytt før lagring.');
   } catch (error) { alert(error.message); return; }
   if (!form.reportValidity()) return;
   button.disabled = true;
   try {
-    const { error } = await s.from('orders').update({ ...values, updated_at: new Date().toISOString() }).eq('id', current.id);
-    if (error) throw error;
+    const snapshot = editingOrderSnapshot;
+    const stops = ['pickup', 'delivery'].flatMap(type => {
+      const existing = snapshot.stops.find(stop => stop.stop_type === type && Number(stop.stop_sequence) === 1);
+      return values[type + '_name'] ? [{ ...existing, ...primaryStop(values, type), ...(existing ? { id: existing.id } : {}) }] : [];
+    });
+    const nextSequence = { pickup: 2, delivery: 2 };
     for (const update of updates) {
-      const result = await s.from('order_stops').update({ ...update.values, updated_at: new Date().toISOString() }).eq('id', update.id);
-      if (result.error) throw new Error('Ordren er lagret, men et stopp kunne ikke oppdateres: ' + result.error.message);
+      const existing = snapshot.stops.find(stop => stop.id === update.id);
+      if (!existing) throw new Error('Stoppet er endret. Hent ordren på nytt.');
+      stops.push({ ...existing, ...update.values, stop_sequence: nextSequence[update.values.stop_type]++ });
     }
+    const { error } = await s.rpc('save_cargo_order', { p_id: snapshot.id, p_expected_revision: snapshot.revision,
+      p_request_id: null, p_order: values, p_stops: stops });
+    if (error) throw error;
+    editingOrderSnapshot = null;
     $('editModal').classList.add('hidden'); await load(); alert('Ordren er oppdatert.');
   } catch (error) { alert(error.message); }
   finally { button.disabled = false; }

@@ -44,7 +44,21 @@ function query(table){
  return Promise.resolve({data:single?(data[0]||null):data.map(r=>({...r})),error:null}).then(resolve,reject);
  }catch(e){return Promise.reject(e).then(resolve,reject)}}};return q;
 }
-w.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'test-user',email:'qa@example.invalid'}}}}),onAuthStateChange:()=>{},signOut:async()=>{}},from:query,rpc:async(name,args)=>{assert.equal(name,'create_cargo_order_from_capacity');importedCalls.push(args);const data={...args.p_order,id:'capacity-created',order_number:987};records.orders.push(data);return{data:{id:data.id,order_number:data.order_number,reused:false},error:null};}})};
+records.orders.forEach(o=>{o.revision=1;o.status='created';});
+const rpc = async(name,args)=>{
+ if(name==='cargo_order_snapshot'){const order=records.orders.find(o=>o.id===args.p_id);return{data:order?{...order,stops:records.order_stops.filter(st=>st.order_id===order.id).map(st=>({...st}))}:null,error:null};}
+ if(name==='save_cargo_order'){
+  let order=records.orders.find(o=>o.id===args.p_id);
+  if(args.p_id && (!order || order.revision!==args.p_expected_revision))return{data:null,error:{code:'40001',message:'Ordren er endret av en annen bruker.'}};
+  if(!args.p_id){order={id:'atomic-'+records.orders.length,order_number:900+records.orders.length,revision:0,status:'created',created_by:'test-user'};records.orders.push(order);}
+  Object.assign(order,args.p_order,{revision:order.revision+1});
+  if(args.p_stops){records.order_stops=records.order_stops.filter(st=>st.order_id!==order.id);records.order_stops.push(...args.p_stops.map((st,i)=>({...st,id:st.id||order.id+'-stop-'+i,order_id:order.id})));}
+  mutations.push({table:'orders',action:'atomic',payload:args});return{data:{...order,reused:false},error:null};
+ }
+ assert.equal(name,'create_cargo_order_from_capacity_with_pricing');importedCalls.push(args);const data={...args.p_order,id:'capacity-created',order_number:987,revision:1};records.orders.push(data);return{data:{id:data.id,order_number:data.order_number,reused:false},error:null};
+};
+w.structuredClone=structuredClone;w.TextEncoder=TextEncoder;w.TextDecoder=TextDecoder;
+w.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:{user:{id:'test-user',email:'qa@example.invalid'}}}}),onAuthStateChange:()=>{},signOut:async()=>{}},from:query,rpc})};
 w.HTMLCanvasElement.prototype.getContext=()=>null;w.alert=()=>{};w.HTMLElement.prototype.scrollIntoView=function(){};
 w.Blob=Blob;let downloadedBlob=null;
 w.URL.createObjectURL=blob=>{downloadedBlob=blob;return 'blob:qa'};w.URL.revokeObjectURL=()=>{};
@@ -112,7 +126,7 @@ async function submitCustomer(name){d.querySelector('#customerForm [name=name]')
  await run('exportInvoiceExcel()');
  assert(downloadedBlob);assert.equal(JSON.stringify(records.orders),before);assert.equal(mutations.length,beforeMutations);
  const exported = new w.ExcelJS.Workbook(); await exported.xlsx.load(new w.Uint8Array(await downloadedBlob.arrayBuffer())); const invoicing=exported.getWorksheet('Fakturagrunnlag');
- assert(invoicing.getCell('L4').value.includes('Inngående faktura fra transportør')); assert(invoicing.getCell('M4').value.includes('Til fakturering kunde'));
+ assert(invoicing.getCell('L4').value.includes('Inngående faktura fra transportør')); assert(invoicing.getCell('P4').value.includes('Til fakturering kunde'));
  const invoiceRows=[];invoicing.eachRow(row=>{if(row.getCell(1).value==='GNS-600')invoiceRows.push(row)});assert.equal(invoiceRows[0].getCell(12).value,35000);assert.equal(invoiceRows[0].getCell(13).value,46500);
  assert.notEqual(invoiceRows[0].getCell(12).fill.fgColor.argb,invoiceRows[0].getCell(13).fill.fgColor.argb);
  assert(invoicing.getCell('L9').value.formula.startsWith('SUBTOTAL(109,L5:'));assert(invoicing.getCell('M10').value.formula.startsWith('SUBTOTAL(109,M5:'));

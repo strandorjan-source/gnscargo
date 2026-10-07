@@ -227,11 +227,11 @@ function installCmrForm() {
     try {
       cmrWorkingRoutes[cmrActiveRoute] = readCmrFields();
       const details = { ...cmrOrder.cmr_details, routes: cmrWorkingRoutes };
-      const { data, error } = await s.from('orders').update({ cmr_details: details, updated_at: new Date().toISOString() }).eq('id', cmrOrder.id).select('id').single();
-      if (error || !data) throw error || new Error('Ordren kunne ikke oppdateres.');
+      const data = await patchCargoOrder(cmrOrder, { cmr_details: details });
+      cmrOrder.revision = data.revision;
       cmrOrder.cmr_details = details;
-      const row = orders.find(order => order.id === cmrOrder.id); if (row) row.cmr_details = details;
-      if (current?.id === cmrOrder.id) current.cmr_details = details;
+      const row = orders.find(order => order.id === cmrOrder.id); if (row) { row.cmr_details = details; row.revision = data.revision; }
+      if (current?.id === cmrOrder.id) { current.cmr_details = details; current.revision = data.revision; }
       const route = cmrRoute();
       makeCmr(cmrOrder, cmrWorkingRoutes[cmrActiveRoute], route, $('cmrCopies').value).save('CMR-' + documentRef(cmrOrder) + '-L' + (Number($('cmrPickup').value) + 1) + '-D' + (Number($('cmrDelivery').value) + 1) + '.pdf');
       note($('cmrMessage'), 'CMR-opplysningene er lagret og PDF-en er lastet ned.');

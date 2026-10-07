@@ -38,7 +38,9 @@ const context = vm.createContext({
   osloDate: value => value ? new Date(value).toISOString().slice(0, 10) : '',
   dateCell: value => value ? new Date(value) : null
 });
-vm.runInContext(source.slice(start, end >= 0 ? end : undefined), context);
+// Use the same realm as the real ExcelJS library (which tests arrays with instanceof).
+const helpers = new Function(...Object.keys(context), source.slice(start, end >= 0 ? end : undefined) + '; return { buildInvoiceWorkbook, customerReportPricing, sumReportAmounts };');
+Object.assign(context, helpers(...Object.values(context)));
 const fixtures = [
   { order_number: 1, customer: 'Testkunde', carrier_price: 35000, customer_base_price: 40000, customer_diesel_percent: 9, customer_diesel_amount: 3600, customer_price: 43600, carrier_invoice_received: true },
   { order_number: 2, customer: 'Testkunde', carrier_price: 40000, customer_base_price: '46500.00', customer_diesel_percent: '8.75', customer_diesel_amount: '4068.75', customer_price: '50568.75' },

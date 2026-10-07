@@ -7,3 +7,8 @@ node_modules
 /supabase/.temp/
 /tests/node_modules/
 /tests/output/
+
+/public/
+*.tgz
+__pycache__/
+*.pyc

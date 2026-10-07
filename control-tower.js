@@ -272,6 +272,7 @@ function reportOrders(source = orders, options = reportOptions()) {
   return source.filter(order => {
     if (options.month && !osloDate(order.created_at).startsWith(options.month)) return false;
     if (options.customer && normalizeCustomer(order.customer) !== options.customer) return false;
+    if (['unbilled', 'billing'].includes(options.scope) && order.status === 'cancelled') return false;
     if (options.scope === 'unbilled') return !order.customer_invoice_sent;
     if (options.scope === 'billing') return order.carrier_invoice_received && !order.customer_invoice_sent;
     if (options.scope === 'done') return !!order.customer_invoice_sent;
@@ -294,6 +295,7 @@ function updateReportSummary() {
 }
 
 function refreshOrderTools() {
+  if (typeof refreshOperations === 'function') refreshOperations();
   if (typeof refreshCarrierTools === 'function') refreshCarrierTools();
   if (typeof refreshLocationTools === 'function') refreshLocationTools();
   customerPickers.forEach((picker, input) => {
@@ -379,7 +381,7 @@ function buildInvoiceWorkbook(ExcelJS, list, register, options) {
       order.pickup_name || '', order.delivery_name || '', order.goods || '', order.pallets == null ? null : Number(order.pallets),
       order.weight_kg == null ? null : Number(order.weight_kg), order.carrier_name || '',
       reportNumber(order.carrier_price), price.base, price.percent / 100, price.diesel, price.total,
-      order.customer_invoice_sent ? 'Fakturert' : order.carrier_invoice_received ? 'Til fakturering' : 'Venter transportørfaktura'
+      order.status === 'cancelled' ? 'Kansellert – ikke fakturer' : order.customer_invoice_sent ? 'Fakturert' : order.carrier_invoice_received ? 'Til fakturering' : 'Venter transportørfaktura'
     ]);
     row.getCell(4).numFmt = row.getCell(5).numFmt = 'dd.mm.yyyy';
     row.getCell(9).numFmt = '0';
