@@ -33,7 +33,11 @@ function readOrderForm(form) {
   values.pickup_at = scheduledAt(values.pickup_date, values.pickup_time);
   delete values.pickup_time;
   values.delivery_at = values.delivery_at ? new Date(values.delivery_at).toISOString() : null;
-  for (const key of ['pallets', 'weight_kg', 'carrier_price', 'customer_price']) values[key] = values[key] === '' ? null : Number(values[key]);
+  const pricing = calculateCustomerPricing(values.customer_price, values.customer_diesel_percent);
+  // The database generates the amount; send only the editable inputs and total.
+  delete pricing.customer_diesel_amount;
+  Object.assign(values, pricing);
+  for (const key of ['pallets', 'weight_kg', 'carrier_price']) values[key] = values[key] === '' ? null : Number(values[key]);
   values.carrier_id = carriers.find(carrier => String(carrier.name).trim().toLocaleLowerCase('nb-NO') === String(values.carrier_name || '').trim().toLocaleLowerCase('nb-NO'))?.id || null;
   return values;
 }
@@ -133,6 +137,7 @@ window.editOrder = async id => {
     ['carrier_name', 'Transportør'], ['carrier_email', 'Transportør e-post', 'email'], ['carrier_contact', 'Transportørkontakt'], ['carrier_phone', 'Telefon transportørkontakt', 'tel'], ['trailer_number', 'Trallenummer'], ['driver_name', 'Sjåfør'], ['driver_phone', 'Sjåfør telefon'], ['vehicle_registration', 'Reg.nr'],
     ['carrier_price', 'Avtalt frakt til transportør (NOK)', 'number'], ['customer_price', 'Salgspris', 'number'], ['instructions', 'Instruksjoner']];
   $('editFields').innerHTML = fields.map(([key, label, type = 'text']) => '<label>' + label + '<input name="' + key + '" type="' + type + '" value="' + esc(values[key] ?? '') + '"' + (['customer', 'pickup_name', 'pickup_date', 'vehicle_registration'].includes(key) ? ' required' : '') + (['weight_kg', 'carrier_price', 'customer_price'].includes(key) ? ' step="0.01"' : '') + '></label>').join('');
+  installCustomerPricing($('editForm'), current);
   // First stops use the main fields above, so users enter each pickup date only once.
   $('editStops').innerHTML = current.stops.filter(stop => Number(stop.stop_sequence) !== 1).map(stop => '<div class="multiStop" data-stop="' + esc(stop.id) + '"><div class="multiStopGrid"><label>Type<select data-k="stop_type"><option value="pickup"' + (stop.stop_type === 'pickup' ? ' selected' : '') + '>Henting</option><option value="delivery"' + (stop.stop_type === 'delivery' ? ' selected' : '') + '>Levering</option></select></label><div class="stop-fields">' + stopFields(stop.stop_type, stop) + '</div></div></div>').join('');
   $('editModal').classList.remove('hidden');
@@ -177,3 +182,75 @@ $('editForm').onsubmit = async event => {
   } catch (error) { alert(error.message); }
   finally { button.disabled = false; }
 };
+/* Customer prices are stored as total; the base and percentage stay separate for editing. */
+function pricingUnits(value, label, optional = false) {
+  const text = String(value ?? '').trim().replace(',', '.');
+  if (!text) return optional ? null : 0n;
+  if (!/^\d+(?:\.\d{1,2})?$/.test(text)) throw new Error(label + ' må være et positivt tall med høyst to desimaler.');
+  const [whole, fraction = ''] = text.split('.');
+  const units = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+  if (units > 999999999999n) throw new Error(label + ' er for stort.');
+  return units;
+}
+
+function calculateCustomerPricing(baseValue, percentValue) {
+  const base = pricingUnits(baseValue, 'Fraktsum til kunde', true);
+  const percent = pricingUnits(percentValue, 'Dieseltillegg');
+  if (percent > 10000n) throw new Error('Dieseltillegget må være mellom 0 og 100 %.');
+  if (base === null && percent > 0n) throw new Error('Fyll inn fraktsum til kunde før du legger til dieseltillegg.');
+  // Integer cents and basis points avoid binary floating-point rounding errors.
+  const diesel = base === null ? 0n : (base * percent + 5000n) / 10000n;
+  return {
+    customer_base_price: base === null ? null : Number(base) / 100,
+    customer_diesel_percent: Number(percent) / 100,
+    customer_diesel_amount: Number(diesel) / 100,
+    customer_price: base === null ? null : Number(base + diesel) / 100
+  };
+}
+
+function installCustomerPricing(form, order = null) {
+  const base = form.elements.customer_price;
+  if (!base || base.dataset.dieselPricing) return;
+  base.dataset.dieselPricing = 'true';
+  base.min = '0'; base.step = '0.01';
+  if (order) base.value = order.customer_base_price ?? order.customer_price ?? '';
+  const label = base.closest('label');
+  const heading = label.querySelector('.label-heading > span') || [...label.childNodes].find(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim());
+  if (heading) heading.textContent = 'Fraktsum til kunde (NOK)';
+  const percentLabel = document.createElement('label');
+  percentLabel.textContent = 'Dieseltillegg (%)';
+  const percent = document.createElement('input');
+  percent.name = 'customer_diesel_percent';
+  percent.type = 'text'; percent.inputMode = 'decimal'; percent.placeholder = '0';
+  percent.autocomplete = 'off'; percent.maxLength = 6;
+  percent.id = form.id + '-diesel-percent';
+  // Leave an unused surcharge empty, so Capacity does not detect a phantom draft.
+  percent.defaultValue = order?.customer_diesel_percent ? String(order.customer_diesel_percent) : '';
+  const help = document.createElement('small');
+  help.id = form.id + '-diesel-help'; help.className = 'customer-help';
+  help.textContent = 'Prosent av fraktsummen. Tomt felt eller 0 = uten tillegg.';
+  percent.setAttribute('aria-describedby', help.id);
+  percentLabel.append(percent, help);
+  const summary = document.createElement('div');
+  summary.className = 'notice customer-pricing-summary';
+  summary.style.gridColumn = '1 / -1'; summary.style.margin = '0';
+  summary.setAttribute('role', 'status'); summary.setAttribute('aria-live', 'polite');
+  label.after(percentLabel, summary);
+  const money = value => new Intl.NumberFormat('nb-NO', { style: 'currency', currency: 'NOK', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+  const refresh = () => {
+    percent.setCustomValidity('');
+    try {
+      const price = calculateCustomerPricing(base.value, percent.value);
+      summary.classList.remove('error');
+      summary.textContent = price.customer_price === null ? 'Kundepris er ikke oppgitt.' : 'Dieseltillegg: ' + money(price.customer_diesel_amount) + ' · Totalpris til kunde: ' + money(price.customer_price) + ' (før eventuell mva).';
+    } catch (error) {
+      percent.setCustomValidity(error.message);
+      summary.classList.add('error'); summary.textContent = error.message;
+    }
+  };
+  base.addEventListener('input', refresh); percent.addEventListener('input', refresh);
+  if (form.id === 'form') form.addEventListener('reset', () => setTimeout(refresh, 0));
+  refresh();
+}
+
+installCustomerPricing($('form'));
