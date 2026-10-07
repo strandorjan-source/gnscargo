@@ -1,0 +1,91 @@
+name: Verify reviewed operations release
+on:
+  push:
+    branches: [feature/operations-safety]
+    paths: [.github/workflows/materialize-ops.yml]
+permissions: {}
+jobs:
+  materialize:
+    if: github.repository == 'strandorjan-source/gnscargo' && github.ref == 'refs/heads/feature/operations-safety'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 2
+      - name: Materialize reviewed source bytes only
+        id: source
+        env:
+          GITHUB_API_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, lzma, os, pathlib, subprocess, urllib.request
+          root = pathlib.Path.cwd()
+          expected_parent = '4242063a45b64296471481b0b7bbcfd6d6d7225b'
+          assert subprocess.check_output(['git','rev-parse','HEAD^'],text=True).strip() == expected_parent
+          parts = ['e60e8448f790f3bfc294846ffd20238bf70fe0c5','411ca9e3543bc52c0aaf7e85008d8d2d9f40587c','d4fac016f784db7c0a25eeeba200aa2f4b4e80a9','9254d6aca2941614c1fbb8fc71e5b1f30ff1c29d','a70c6d91767430b26beac9a9a3fba8c1ec1746cb','4671265ff70854828914bb72f05e93c837ffe1a8']
+          def git_hash(raw):
+              return hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest()
+          packed = b''
+          for sha in parts:
+              url = 'https://api.github.com/repos/strandorjan-source/gnscargo/git/blobs/' + sha
+              req = urllib.request.Request(url, headers={'Accept':'application/vnd.github+json','Authorization':'Bearer ' + os.environ['GITHUB_API_TOKEN']})
+              with urllib.request.urlopen(req,timeout=30) as response:
+                  data = json.load(response)
+              raw = base64.b64decode(data['content'])
+              assert git_hash(raw) == sha
+              packed += raw
+          assert hashlib.sha256(packed).hexdigest() == '27226051ae10c0b432b51a2229d929006648cdcbe99fbc0e6a30f87c80f51320'
+          bundle = json.loads(lzma.decompress(packed,memlimit=128*1024*1024))
+          assert bundle['version'] == 1 and bundle['base_commit'] == expected_parent and len(bundle['files']) == 30
+          prepared = []
+          for item in bundle['files']:
+              rel = pathlib.PurePosixPath(item['path'])
+              assert not rel.is_absolute() and not any(p in ('.git','.github','..') for p in rel.parts)
+              assert rel.parts[0] in ('scripts','tests','supabase') or len(rel.parts) == 1
+              target = root.joinpath(*rel.parts)
+              assert target.resolve().is_relative_to(root) and not target.is_symlink()
+              if item['before'] is None:
+                  assert not target.exists()
+                  content = item['content']
+              else:
+                  original = target.read_bytes()
+                  assert git_hash(original) == item['before'], 'Concurrent change: ' + item['path']
+                  content = original.decode('utf-8')
+                  for start,end,text in reversed(item['splices']):
+                      assert 0 <= start <= end <= len(content)
+                      content = content[:start] + text + content[end:]
+              raw = content.encode('utf-8')
+              assert git_hash(raw) == item['after'], 'Source mismatch: ' + item['path']
+              prepared.append((target,raw,item['path']))
+          for target,raw,_ in prepared:
+              target.parent.mkdir(parents=True,exist_ok=True)
+              target.write_bytes(raw)
+          subprocess.run(['git','diff','--check'],check=True)
+          subprocess.run(['git','add','--',*[p for _,_,p in prepared]],check=True)
+          subprocess.run(['git','-c','user.name=github-actions[bot]','-c','user.email=41898282+github-actions[bot]@users.noreply.github.com','commit','-m','Implement atomic orders, operational dashboard, private follow-up and release tests'],check=True)
+          commit = subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          subprocess.run(['git','push','origin','HEAD:refs/heads/feature/operations-safety'],check=True)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('commit=' + commit + '\n')
+          print('Verified and committed',len(prepared),'source files:',commit)
+          PY
+  verify:
+    needs: materialize
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.materialize.outputs.commit }}
+          persist-credentials: false
+      - run: npm ci --prefix tests --ignore-scripts
+      - run: node scripts/release-check.cjs
+      - run: python tests/backup-verifier.py
+      - run: npm audit --prefix tests --audit-level=high
