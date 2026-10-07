@@ -287,9 +287,10 @@ function hasPrice(order) { return order.customer_price !== null && order.custome
 
 function updateReportSummary() {
   const list = reportOrders();
-  const total = list.reduce((sum, order) => sum + Number(order.customer_price || 0), 0);
+  const total = sumReportAmounts(list.map(order => reportNumber(order.customer_price)));
+  const diesel = sumReportAmounts(list.map(order => customerReportPricing(order).diesel));
   const missing = list.filter(order => !hasPrice(order)).length;
-  $('reportSummary').textContent = list.length + ' ordre · Sum registrert salgspris: ' + nok(total) + (missing ? ' · ' + missing + ' ordre mangler salgspris.' : '') + (list.length ? '' : ' Velg et annet utvalg eller en annen måned.');
+  $('reportSummary').textContent = list.length + ' ordre · Sum til kunde inkl. diesel: ' + nok(total) + ' · Herav dieseltillegg: ' + nok(diesel) + (missing ? ' · ' + missing + ' ordre mangler salgspris.' : '') + (list.length ? '' : ' Velg et annet utvalg eller en annen måned.');
 }
 
 function refreshOrderTools() {
@@ -322,67 +323,104 @@ function dateCell(value) {
   return date ? new Date(date + 'T00:00:00Z') : null;
 }
 
+function reportNumber(value) {
+  return value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
+}
+
+function customerReportPricing(order) {
+  const total = reportNumber(order.customer_price);
+  const storedBase = reportNumber(order.customer_base_price);
+  const percent = reportNumber(order.customer_diesel_percent) ?? 0;
+  // Export recorded amounts. Do not apply diesel again to the saved customer total.
+  // Legacy orders have no separate base; keep their recorded price unchanged.
+  return {
+    base: storedBase ?? (percent === 0 ? total : null),
+    percent,
+    diesel: percent === 0 ? 0 : reportNumber(order.customer_diesel_amount),
+    total,
+    legacy: storedBase === null && total !== null && percent === 0
+  };
+}
+
+function sumReportAmounts(values) {
+  return values.reduce((cents, value) => cents + Math.round(Number(value || 0) * 100), 0) / 100;
+}
+
 function buildInvoiceWorkbook(ExcelJS, list, register, options) {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'GNS Cargo AS';
   workbook.created = new Date();
   const sheet = workbook.addWorksheet('Fakturagrunnlag');
-  const headings = ['GNS-referanse', 'Kunde', 'Kundereferanse', 'Hentedato', 'Leveringsdato', 'Hentested', 'Leveringssted', 'Gods', 'Paller', 'Nettovekt (kg)', 'Transportør', 'Inngående faktura fra transportør – avtalt frakt (NOK)', 'Til fakturering kunde – salgspris (NOK)', 'Status kundefakturering'];
+  const headings = ['GNS-referanse', 'Kunde', 'Kundereferanse', 'Hentedato', 'Leveringsdato', 'Hentested', 'Leveringssted', 'Gods', 'Paller', 'Nettovekt (kg)', 'Transportør', 'Inngående faktura fra transportør – avtalt frakt (NOK)', 'Fraktsum til kunde uten diesel (NOK)', 'Dieseltillegg (%)', 'Dieseltillegg (NOK)', 'Til fakturering kunde – total inkl. diesel (NOK)', 'Status kundefakturering'];
+  const pricing = list.map(customerReportPricing);
   const scopeLabels = { unbilled: 'Ikke fakturert', billing: 'Til fakturering – transportørfaktura mottatt', all: 'Alle ordre', done: 'Ferdig fakturert' };
   const missing = list.filter(order => !hasPrice(order)).length;
-  const hasCarrierPrice = order => order.carrier_price !== null && order.carrier_price !== undefined && order.carrier_price !== '' && Number.isFinite(Number(order.carrier_price));
+  const hasCarrierPrice = order => reportNumber(order.carrier_price) !== null;
   const missingCarrier = list.filter(order => !hasCarrierPrice(order)).length;
-  sheet.mergeCells('A1:N1');
+  const missingBreakdown = pricing.some(price => price.base === null || price.diesel === null);
+  const incomplete = missing || missingCarrier || missingBreakdown;
+  sheet.mergeCells('A1:Q1');
   sheet.getCell('A1').value = 'GNS CARGO AS – FAKTURAGRUNNLAG';
   sheet.getRow(1).height = 30;
   sheet.getCell('A1').font = { name: 'Calibri', size: 18, bold: true, color: { argb: 'FF071B31' } };
-  sheet.mergeCells('A2:N2');
+  sheet.mergeCells('A2:Q2');
   sheet.getCell('A2').value = 'Opprettet måned: ' + (options.month || 'Alle') + ' | ' + scopeLabels[options.scope] + ' | ' + list.length + ' ordre | Lastet ned ' + osloDate(new Date());
-  sheet.mergeCells('A3:N3');
-  sheet.getCell('A3').value = 'Blå beløpskolonne = avtalt frakt / forventet inngående faktura fra transportør. Grønn beløpskolonne = salgspris til kundefakturering. Transportørbeløpet skal ikke brukes som kundens fakturabeløp. Mva håndteres i fakturasystemet.' + (missing || missingCarrier ? ' Gule felt mangler pris.' : '');
-  sheet.getCell('A3').font = { italic: true, color: { argb: missing || missingCarrier ? 'FF805600' : 'FF536273' }, size: 11 };
+  sheet.mergeCells('A3:Q3');
+  sheet.getCell('A3').value = 'Blå kolonne = forventet inngående faktura fra transportør. Grønne kolonner = fraktsum, diesel og total til kunde. Kundens total inkluderer diesel; tillegget skal ikke legges til på nytt. Mva håndteres i fakturasystemet. Eldre ordre uten separat dieselspesifikasjon beholder registrert pris som fraktsum og 0 i diesel.' + (incomplete ? ' Gule felt mangler pris eller spesifikasjon.' : '');
+  sheet.getCell('A3').font = { italic: true, color: { argb: incomplete ? 'FF805600' : 'FF536273' }, size: 11 };
   sheet.getCell('A3').alignment = { wrapText: true, vertical: 'middle' };
-  sheet.getRow(3).height = 34;
+  sheet.getRow(3).height = 44;
   sheet.getRow(4).values = headings;
   const priceFormat = '#,##0.00 "NOK"';
-  list.forEach(order => {
+  list.forEach((order, index) => {
+    const price = pricing[index];
     const row = sheet.addRow([
       'GNS-' + order.order_number, order.customer || '', order.customer_reference || '', dateCell(order.pickup_date || order.pickup_at), dateCell(order.delivery_at),
       order.pickup_name || '', order.delivery_name || '', order.goods || '', order.pallets == null ? null : Number(order.pallets),
       order.weight_kg == null ? null : Number(order.weight_kg), order.carrier_name || '',
-      hasCarrierPrice(order) ? Number(order.carrier_price) : null, hasPrice(order) ? Number(order.customer_price) : null,
+      reportNumber(order.carrier_price), price.base, price.percent / 100, price.diesel, price.total,
       order.customer_invoice_sent ? 'Fakturert' : order.carrier_invoice_received ? 'Til fakturering' : 'Venter transportørfaktura'
     ]);
     row.getCell(4).numFmt = row.getCell(5).numFmt = 'dd.mm.yyyy';
     row.getCell(9).numFmt = '0';
     row.getCell(10).numFmt = '#,##0.0';
-    row.getCell(12).numFmt = row.getCell(13).numFmt = priceFormat;
+    for (const column of [12, 13, 15, 16]) row.getCell(column).numFmt = priceFormat;
+    row.getCell(14).numFmt = '0.00%';
     row.height = 32;
     row.eachCell({ includeEmpty: true }, cell => {
       cell.font = { name: 'Calibri', size: 11 };
       cell.alignment = { vertical: 'middle', wrapText: true };
       if (row.number % 2) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F6FB' } };
     });
-    row.getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hasCarrierPrice(order) ? 'FFEAF3FC' : 'FFFFE6A3' } };
-    row.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: hasPrice(order) ? 'FFEAF8F0' : 'FFFFE6A3' } };
+    for (const column of [12, 13, 14, 15, 16]) {
+      const cell = row.getCell(column);
+      cell.alignment = { vertical: 'middle', horizontal: 'right' };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: cell.value === null ? 'FFFFE6A3' : column === 12 ? 'FFEAF3FC' : 'FFEAF8F0' } };
+    }
+    row.getCell(16).font = { name: 'Calibri', size: 11, bold: true };
+    if (price.legacy) row.getCell(13).note = 'Eldre ordre uten separat dieselspesifikasjon. Registrert kundepris er beholdt uendret som fraktsum. Ingen nytt dieseltillegg er beregnet.';
   });
   const lastDataRow = list.length + 4;
-  for (const [offset, column, letter, key, label, color] of [
-    [2, 12, 'L', 'carrier_price', 'SUM INNGÅENDE FAKTURA FRA TRANSPORTØR', 'FF235781'],
-    [3, 13, 'M', 'customer_price', 'SUM TIL FAKTURERING KUNDE', 'FF176740']
+  // Percentages are not added. Each monetary subtotal follows the visible rows.
+  for (const [offset, column, letter, values, label, color] of [
+    [2, 12, 'L', list.map(order => reportNumber(order.carrier_price)), 'SUM INNGÅENDE FAKTURA FRA TRANSPORTØR', 'FF235781'],
+    [3, 13, 'M', pricing.map(price => price.base), 'SUM FRAKTSUM TIL KUNDE UTEN DIESEL', 'FF176740'],
+    [4, 15, 'O', pricing.map(price => price.diesel), 'SUM DIESELTILLEGG TIL KUNDE', 'FF176740'],
+    [5, 16, 'P', pricing.map(price => price.total), 'SUM TIL FAKTURERING KUNDE INKL. DIESEL', 'FF176740']
   ]) {
     const totalRow = sheet.getRow(lastDataRow + offset);
     sheet.mergeCells(`B${totalRow.number}:K${totalRow.number}`);
     totalRow.getCell(2).value = label;
-    totalRow.getCell(column).value = { formula: `SUBTOTAL(109,${letter}5:${letter}${lastDataRow})`, result: list.reduce((sum, order) => sum + Number(order[key] || 0), 0) };
+    totalRow.getCell(column).value = list.length ? { formula: `SUBTOTAL(109,${letter}5:${letter}${lastDataRow})`, result: sumReportAmounts(values) } : 0;
     totalRow.getCell(column).numFmt = priceFormat;
+    totalRow.getCell(column).alignment = { horizontal: 'right' };
     totalRow.font = { bold: true, name: 'Calibri', size: 12, color: { argb: color } };
   }
-  [20, 30, 24, 15, 15, 27, 27, 23, 11, 18, 28, 32, 32, 30].forEach((width, i) => { sheet.getColumn(i + 1).width = width; });
-  styleReportSheet(sheet, 4, 14, lastDataRow);
-  sheet.getRow(4).height = 48;
+  [20, 30, 24, 15, 15, 27, 27, 23, 11, 18, 28, 32, 28, 20, 24, 34, 30].forEach((width, i) => { sheet.getColumn(i + 1).width = width; });
+  styleReportSheet(sheet, 4, 17, lastDataRow);
+  sheet.getRow(4).height = 60;
   sheet.getCell('L4').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF235781' } };
-  sheet.getCell('M4').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF176740' } };
+  for (const column of ['M4', 'N4', 'O4', 'P4']) sheet.getCell(column).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF176740' } };
 
   const customerSheet = workbook.addWorksheet('Kundedetaljer');
   customerSheet.addRow(['Kunde', 'Organisasjonsnummer', 'Faktura-e-post', 'Adresse', 'Postnummer', 'Poststed', 'Kontaktperson', 'Telefon', 'E-post']);
