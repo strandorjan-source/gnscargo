@@ -66,7 +66,7 @@ async function loadCapacityOrderRequest(force = false) {
 async function saveCapacityCargoOrder(order, stops) {
   const imported = capacityOrderImport;
   if (!imported) throw new Error('Bilens reservasjon mangler. Hent bilen fra Capacity på nytt.');
-  const { data, error } = await s.rpc('create_cargo_order_from_capacity', { p_vehicle_id: imported.id, p_reserved_at: imported.reservedAt,
+  const { data, error } = await s.rpc('create_cargo_order_from_capacity_with_pricing', { p_vehicle_id: imported.id, p_reserved_at: imported.reservedAt,
     p_vehicle_updated_at: imported.updatedAt, p_order: order, p_stops: stops });
   if (error) throw error;
   return data;
