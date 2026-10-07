@@ -13,15 +13,17 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
-      - name: Package source for offline verification
-        run: git archive --format=zip -o cargo-source.zip HEAD
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: cargo-reviewed-source
-          path: cargo-source.zip
-          retention-days: 3
       - name: Install locked test dependencies
         run: npm ci --prefix tests --ignore-scripts
+      - name: Package isolated test dependencies
+        run: tar -czf cargo-test-deps.tgz tests/node_modules
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cargo-test-deps
+          path: cargo-test-deps.tgz
+          retention-days: 1
+      - name: Dependency assessment
+        run: npm audit --prefix tests --json || true
       - name: Run regression checks
         run: |
           node tests/customer-pricing.cjs
