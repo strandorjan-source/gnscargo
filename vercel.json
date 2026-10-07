@@ -1,21 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
-    {
-      "source": "/capacity",
-      "destination": "https://gns-capacity-test.vercel.app/"
-    },
-    {
-      "source": "/capacity/health",
-      "destination": "https://gns-capacity-test.vercel.app/api/health"
-    },
-    {
-      "source": "/_next/:path*",
-      "destination": "https://gns-capacity-test.vercel.app/_next/:path*"
-    }
-  ],
   "framework": null,
-  "installCommand": "npm ci --prefix tests --ignore-scripts",
+  "installCommand": "npm ci --prefix tests --ignore-scripts --include=dev",
   "buildCommand": "node scripts/release-check.cjs",
-  "outputDirectory": "public"
+  "outputDirectory": "public",
+  "rewrites": [
+    { "source": "/capacity", "destination": "https://gns-capacity-test.vercel.app/" },
+    { "source": "/capacity/health", "destination": "https://gns-capacity-test.vercel.app/api/health" },
+    { "source": "/_next/:path*", "destination": "https://gns-capacity-test.vercel.app/_next/:path*" }
+  ]
 }
