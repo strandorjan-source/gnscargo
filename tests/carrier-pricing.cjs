@@ -1,0 +1,94 @@
+'use strict';
+const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm'), assert = require('node:assert/strict');
+const root = path.resolve(__dirname, '..');
+const source = fs.readFileSync(path.join(root, 'send-order.js'), 'utf8');
+const pure = vm.createContext({});
+vm.runInContext(source.split('/* Register with')[0], pure);
+const price = (base, percent) => JSON.parse(JSON.stringify(pure.calculateCarrierPricing(base, percent)));
+assert.deepEqual(price(30000, 8), { base: 30000, percent: 8, diesel: 2400, total: 32400 });
+assert.deepEqual(price('32123.45', '8,25'), { base: 32123.45, percent: 8.25, diesel: 2650.18, total: 34773.63 });
+assert.equal(price(.05, 10).diesel, .01);
+assert.equal(price(null, 0).total, null); assert.equal(price(0, 8).total, 0);
+assert.equal(price(30000, '').total, 30000);
+for (const [base, percent] of [[null,8],[100,101],[100,-1],[100,'NaN'],[-1,0],[100,'8.123']]) assert.throws(() => price(base, percent));
+
+const { JSDOM, VirtualConsole } = require('jsdom');
+const html = fs.readFileSync(path.join(root, 'app.html'), 'utf8');
+const errors = [], alerts = [];
+const console = new VirtualConsole();
+console.on('jsdomError', error => { if (!error.message.includes('navigation')) errors.push(error.message); });
+const dom = new JSDOM(html.replace(/<script[\s\S]*?<\/script>/g, ''), { url: 'https://carrier-qa.invalid', runScripts: 'outside-only', pretendToBeVisual: true, virtualConsole: console });
+const w = dom.window, d = w.document, context = dom.getInternalVMContext();
+const run = text => vm.runInContext(text, context);
+const data = { orders: [], order_stops: [], customers: [], locations: [], carriers: [] };
+const query = table => {
+  let filters = [], one = false;
+  const q = { select() { return q; }, order() { return q; }, range() { return q; }, eq(key,value) { filters.push([key,value]); return q; }, single() { one=true; return q; }, maybeSingle() { one=true; return q; },
+    then(resolve,reject) { const rows = (data[table] || []).filter(row => filters.every(([key,value]) => row[key]===value)).map(row => structuredClone(row)); return Promise.resolve({ data:one ? rows[0] : rows,error:null }).then(resolve,reject); } };
+  return q;
+};
+let writes = 0;
+const rpc = async (name, args) => {
+  if (name === 'cargo_order_snapshot') { const order = data.orders.find(row=>row.id===args.p_id); return { data: { ...structuredClone(order), stops:data.order_stops.filter(row=>row.order_id===order.id) }, error:null }; }
+  assert.equal(name, 'save_cargo_order');
+  let order = data.orders.find(row=>row.id===args.p_id);
+  if (order && order.revision !== args.p_expected_revision) return { error:{message:'Version conflict'} };
+  if (!order) { order={id:'qa-'+data.orders.length,order_number:600+data.orders.length,revision:0,status:'created',created_at:'2026-10-08T08:00:00Z'}; data.orders.push(order); }
+  Object.assign(order,args.p_order); const pricing=price(order.carrier_price,order.carrier_diesel_percent);
+  order.carrier_diesel_amount=pricing.diesel; order.carrier_total_price=pricing.total; order.revision++; writes++;
+  if (args.p_stops) { data.order_stops=data.order_stops.filter(row=>row.order_id!==order.id); data.order_stops.push(...args.p_stops.map((stop,index)=>({...stop,id:stop.id||'stop-'+index,order_id:order.id}))); }
+  return {data:{...order,reused:false},error:null};
+};
+w.structuredClone=structuredClone; w.TextEncoder=TextEncoder; w.TextDecoder=TextDecoder;
+w.supabase={createClient:()=>({auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange(){}},from:query,rpc})};
+w.HTMLCanvasElement.prototype.getContext=()=>null; w.alert=text=>alerts.push(text); w.HTMLElement.prototype.scrollIntoView=function(){};
+run(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
+for (const file of ['order-entry.js','control-tower.js']) run(fs.readFileSync(path.join(root,file),'utf8'));
+run(fs.readFileSync(require.resolve('jspdf/dist/jspdf.umd.min.js'),'utf8'));
+run(fs.readFileSync(path.join(root,'transport-documents.js'),'utf8'));
+run(source);
+run(fs.readFileSync(path.join(root,'vendor/exceljs-4.4.0.min.js'),'utf8'));
+const tick=()=>new Promise(resolve=>setTimeout(resolve,15));
+(async()=>{
+  await tick(); run("me={id:'qa',role:'dispatcher'};");
+  const form=d.getElementById('form'), f=form.elements;
+  for (const [key,value] of Object.entries({customer:'PRIVATE-CUSTOMER',pickup_name:'Pickup',pickup_date:'2026-10-08',vehicle_registration:'TEST123',carrier_price:'30000',carrier_diesel_percent:'8',customer_price:'50000',customer_diesel_percent:'15',carrier_name:'QA Carrier',carrier_email:'qa@example.invalid',pickup_phone:'87654321',delivery_name:'Destination'})) f[key].value=value;
+  f.carrier_diesel_percent.dispatchEvent(new w.Event('input'));
+  assert(d.querySelector('.carrier-pricing-summary').textContent.includes('32 400,00 NOK'));
+  await form.onsubmit({preventDefault(){},target:form}); await tick();
+  assert.equal(writes,1); assert.equal(data.orders[0].carrier_price,30000); assert.equal(data.orders[0].carrier_diesel_percent,8); assert.equal(data.orders[0].carrier_total_price,32400);
+  assert.equal(data.orders[0].customer_price,57500); assert.equal(data.orders[0].customer_diesel_percent,15);
+  assert.equal(f.carrier_diesel_percent.value,'');
+  await w.editOrder('qa-0');
+  const edit=d.getElementById('editForm');
+  assert.equal(edit.elements.carrier_price.value,'30000'); assert.equal(edit.elements.carrier_diesel_percent.value,'8');
+  edit.elements.customer_reference.value='Changed reference only';
+  await edit.onsubmit({preventDefault(){},target:edit});
+  assert.equal(writes,2); assert.equal(data.orders[0].carrier_price,30000); assert.equal(data.orders[0].carrier_total_price,32400);
+  await w.editOrder('qa-0'); assert.equal(edit.elements.carrier_diesel_percent.value,'8');
+  edit.elements.carrier_diesel_percent.value='101';
+  await edit.onsubmit({preventDefault(){},target:edit}); assert.equal(writes,2); assert(alerts.at(-1).includes('mellom 0 og 100'));
+  edit.elements.carrier_diesel_percent.value='8';
+  await w.openOrder('qa-0');
+  const text=d.getElementById('sheet').textContent;
+  for (const amount of ['30 000,00 NOK','2 400,00 NOK','32 400,00 NOK']) assert(text.includes(amount));
+  assert(!text.includes('PRIVATE-CUSTOMER')); assert(!text.includes('87654321')); assert(!text.includes('57 500'));
+  const mail=run('carrierEmail(current)').body;
+  assert(mail.includes('8 %')); assert(mail.includes('2 400,00 NOK')); assert(mail.includes('32 400,00 NOK')); assert(!mail.includes('15 %'));
+  const noDelivery=run('carrierEmail(current,{includeDelivery:false})').body;
+  assert(noDelivery.includes('32 400,00 NOK')); assert(!noDelivery.includes('Destination'));
+  const pdf=run('makePdf(current)'); const pdfSource=pdf.output();
+  assert(pdfSource.includes('30 000,00 NOK')); assert(pdfSource.includes('2 400,00 NOK')); assert(pdfSource.includes('32 400,00 NOK'));
+  run('const qaPdf=makePdf; makePdf=(...args)=>{const doc=qaPdf(...args);doc.save=()=>doc;return doc};');
+  await d.getElementById('sendOrderBtn').onclick(); assert(d.getElementById('carrierEmailText').value.includes('32 400,00 NOK'));
+  const book=run("buildInvoiceWorkbook(window.ExcelJS,orders,[],{month:'',scope:'all'})"), sheet=book.getWorksheet('Fakturagrunnlag');
+  assert.equal(sheet.getCell('L5').value,30000); assert.equal(sheet.getCell('R5').value,.08); assert.equal(sheet.getCell('S5').value,2400); assert.equal(sheet.getCell('T5').value,32400); assert.equal(sheet.getCell('P5').value,57500);
+  assert.equal(run("calculateCarrierPricing(orders[0].carrier_price,orders[0].carrier_diesel_percent).base"),30000);
+  run('stats();render();'); assert(d.getElementById('sMargin').textContent.replace(/\D/g,'').startsWith('25100'));
+  await w.editOrder('qa-0'); edit.elements.carrier_diesel_percent.value='0';
+  await edit.onsubmit({preventDefault(){},target:edit}); assert.equal(data.orders[0].carrier_price,30000); assert.equal(data.orders[0].carrier_total_price,30000);
+  assert(run('carrierEmail(orders[0])').body.includes('Ingen dieseltillegg er avtalt'));
+  assert.deepEqual(errors,[]);
+  process.stdout.write('PASS: carrier diesel create/save/edit/reset, no double charge, independent customer surcharge, validation, screen/email/PDF, optional delivery, Excel breakdown and margin.\n');
+  dom.window.close();
+})().catch(error=>{process.stderr.write(error.stack+'\n');dom.window.close();process.exitCode=1;});
