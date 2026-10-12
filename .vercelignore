@@ -1,3 +1,5 @@
-supabase/
+# Backend sources are needed by the release tests; public assets are allowlisted.
+supabase/.temp/
+supabase/migrations/
 tests/output/
 .github/
