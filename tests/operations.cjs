@@ -43,22 +43,41 @@ for(const file of ['document-upload.js','order-entry.js','control-tower.js','ope
 async function submit(form){form.dispatchEvent(new w.Event('submit',{cancelable:true,bubbles:true}));await tick();await tick();}
 (async()=>{await tick();await tick();
  const flags=run("cargoOperationFlags(orders[1], [], [], '2026-10-07')");assert(flags.some(f=>f.text==='Mangler kundepris'));assert(flags.some(f=>f.text==='Mangler bil / transportør'));assert(!run('cargoKnownPrice(null)'));assert(run('cargoKnownPrice(0)'));
+ // Completed work disappears from the follow-up queue without removing orders.
+ assert.equal(d.getElementById('opsExceptions').value,'exceptions');
+ for(const completed of ["{status:'invoiced'}","{status:'delivered',customer_invoice_sent:true}","{status:'cancelled'}"]){
+  assert.equal(run(`cargoOperationFlags({id:'closed',...${completed}},[],[]).length`),0);
+ }
+ assert.equal(run("cargoOperationFlags({id:'closed',status:'invoiced'},[{order_id:'closed',status:'open'}],[])[0].text"),'Åpent avvik');
+ assert.equal(run("cargoOperationFlags({id:'closed',status:'invoiced'},[{order_id:'closed',status:'resolved'}],[]).length"),0);
+ assert.equal(run("cargoOperationFlags({...orders[0],status:'picked_up'},[],[],'2026-10-12').length"),0);
+ assert(run("cargoOperationFlags({...orders[0],status:'sent'},[],[],'2026-10-12').some(f=>f.text.includes('Tidligere lastedato'))"));
+ assert.equal(run("cargoOperationsFilter(orders,{period:'cancelled',exceptions:true},[],[]).length"),1);
  assert.equal(run("cargoOperationsFilter(orders,{today:'2026-10-07',period:'near',owner:'mine',userId:'staff-a'},[],[]).length"),1);
  assert.equal(run("cargoOperationsFilter(orders,{today:'2026-10-07',period:'cancelled'},[],[]).length"),1);
  assert.equal(run("cargoOperationsFilter(orders,{today:'2026-10-07',period:'unbilled'},[],[])[0].id"),'order-c');
  assert.equal(run("cargoNextDay('2026-12-31')"),'2027-01-01');
  assert.equal(run("cargoNextDay('2026-03-29')"),'2026-03-30');
- d.getElementById('opsPeriod').value='all';d.getElementById('opsPeriod').dispatchEvent(new w.Event('change'));assert(d.getElementById('opsList').textContent.includes('Befrakter A'));assert(!d.getElementById('opsList').textContent.includes('Cancelled'));
+ d.getElementById('opsPeriod').value='all';d.getElementById('opsExceptions').value='all';d.getElementById('opsPeriod').dispatchEvent(new w.Event('change'));assert(d.getElementById('opsList').textContent.includes('Befrakter A'));assert(!d.getElementById('opsList').textContent.includes('Cancelled'));
  await run("openOrderFollowup('order-a')");assert(d.getElementById('opsContent').textContent.includes('Creator A'));assert.equal(d.querySelector('#opsAssignment [name=assigned_to]').value,'staff-a');
  // Reassignment preserves the immutable creator field.
  d.querySelector('#opsAssignment [name=assigned_to]').value='staff-b';await submit(d.getElementById('opsAssignment'));assert.equal(db.orders[0].assigned_to,'staff-b');assert.equal(db.orders[0].created_by_name,'Creator A');
+ d.getElementById('opsExceptions').value='exceptions';d.getElementById('opsExceptions').dispatchEvent(new w.Event('change'));
+ d.querySelector('#opsAssignment [name=status]').value='picked_up';await submit(d.getElementById('opsAssignment'));
+ assert(!d.getElementById('opsList').textContent.includes('Customer A'));assert(d.getElementById('rows').textContent.includes('Customer A'));
  // Stale modal cannot overwrite a colleague. User's unsaved choice remains visible.
- db.orders[0].revision++;d.querySelector('#opsAssignment [name=status]').value='delivered';await submit(d.getElementById('opsAssignment'));assert.equal(db.orders[0].status,'created');assert(d.getElementById('opsMessage').textContent.includes('annen bruker'));assert.equal(d.querySelector('#opsAssignment [name=status]').value,'delivered');
+ db.orders[0].revision++;d.querySelector('#opsAssignment [name=status]').value='delivered';await submit(d.getElementById('opsAssignment'));assert.equal(db.orders[0].status,'picked_up');assert(d.getElementById('opsMessage').textContent.includes('annen bruker'));assert.equal(d.querySelector('#opsAssignment [name=status]').value,'delivered');
  await run("openOrderFollowup('order-a')");
  failNotes=true;d.querySelector('#opsNoteForm textarea').value='PRIVATE INTERNAL TEXT';await submit(d.getElementById('opsNoteForm'));assert.equal(d.querySelector('#opsNoteForm textarea').value,'PRIVATE INTERNAL TEXT');assert(!calls.some(c=>c.args?.p_order?.instructions==='PRIVATE INTERNAL TEXT'));
  failNotes=false;await submit(d.getElementById('opsNoteForm'));assert.equal(db.order_notes[0].body,'PRIVATE INTERNAL TEXT');assert(d.getElementById('opsNotes').textContent.includes('PRIVATE INTERNAL TEXT'));assert(!d.getElementById('sheet').textContent.includes('PRIVATE INTERNAL TEXT'));
  d.querySelector('#opsIncidentForm [name=description]').value='Delayed pickup';await submit(d.getElementById('opsIncidentForm'));assert.equal(db.order_incidents[0].category,'delay');assert.equal(db.order_incidents[0].status,'open');
+ assert(d.getElementById('opsList').textContent.includes('Customer A'));
  const incidentForm=d.querySelector('#opsIncidents form');incidentForm.elements.status.value='resolved';await submit(incidentForm);assert.equal(db.order_incidents[0].status,'open');assert(d.getElementById('opsMessage').textContent.includes('Beskriv løsningen'));incidentForm.elements.resolution.value='Customer informed, new delivery arranged';await submit(incidentForm);assert.equal(db.order_incidents[0].status,'resolved');
+ assert(!d.getElementById('opsList').textContent.includes('Customer A'));assert(d.getElementById('rows').textContent.includes('Customer A'));
+ await run('load()');await tick();assert(!d.getElementById('opsList').textContent.includes('Customer A'));
+ d.getElementById('opsExceptions').value='all';d.getElementById('opsExceptions').dispatchEvent(new w.Event('change'));
+ assert(d.getElementById('opsList').textContent.includes('Customer A'));assert(d.getElementById('opsList').textContent.includes('Ingen åpne oppfølgingspunkter'));
+ d.getElementById('opsExceptions').value='exceptions';d.getElementById('opsExceptions').dispatchEvent(new w.Event('change'));
  d.querySelector('#opsGrantForm select').value='carrier-a';await submit(d.getElementById('opsGrantForm'));assert.equal(db.order_upload_grants[0].order_id,'order-a');assert.equal(db.order_upload_grants[0].grantee_id,'carrier-a');assert(d.querySelector('#opsGrants input').value.includes('/carrier-documents.html?grant='));
  // Upload validates content, unique path, and waits for finalization, not just Storage acceptance.
  const bytes=new TextEncoder().encode('%PDF-1.7\nTest fixture only\n%%EOF');w.testFile={name:'proof.pdf',size:bytes.byteLength,arrayBuffer:async()=>bytes.buffer};

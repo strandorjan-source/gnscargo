@@ -16,9 +16,13 @@ function cargoDay(value) {
 function cargoNextDay(day) { return new Date(Date.parse(day+'T12:00:00Z')+86400000).toISOString().slice(0,10); }
 function cargoKnownPrice(value) { return value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)); }
 function cargoOperationFlags(order, incidents = [], documents = [], today = cargoDay(new Date())) {
-  if (order.status === 'cancelled') return [{ text:'Kansellert', type:'good' }];
+  if (order.status === 'cancelled') return [];
   const flags = [];
   const add = (test,text,type='') => { if(test) flags.push({text,type}); };
+  add(incidents.some(x=>x.order_id===order.id && x.status!=='resolved'),'Åpent avvik','danger');
+  // Closed orders do not need old booking details filled in. An unresolved
+  // incident remains actionable until its own follow-up has been completed.
+  if (order.status === 'invoiced' || order.customer_invoice_sent) return flags;
   const active = !['delivered','invoiced'].includes(order.status) && !order.customer_invoice_sent;
   add(active && (!order.carrier_name || !order.vehicle_registration),'Mangler bil / transportør','danger');
   add(active && !String(order.delivery_name || '').trim(),'Mangler lossested');
@@ -26,8 +30,7 @@ function cargoOperationFlags(order, incidents = [], documents = [], today = carg
   add(!cargoKnownPrice(order.customer_price),'Mangler kundepris');
   add(!cargoKnownPrice(order.carrier_price),'Mangler transportørpris');
   add(!order.assigned_to,'Ikke fordelt');
-  add(active && !!cargoDay(order.pickup_date || order.pickup_at) && cargoDay(order.pickup_date || order.pickup_at)<today,'Tidligere lastedato – kontroller status');
-  add(incidents.some(x=>x.order_id===order.id && x.status!=='resolved'),'Åpent avvik','danger');
+  add(active && order.status!=='picked_up' && !!cargoDay(order.pickup_date || order.pickup_at) && cargoDay(order.pickup_date || order.pickup_at)<today,'Tidligere lastedato – kontroller status');
   add(order.status==='delivered' && !order.customer_invoice_sent,'Levert – ikke fakturert');
   add(order.status==='delivered' && !documents.some(x=>x.order_id===order.id && x.status==='ready' && ['pod','cmr'].includes(x.category)),'Mangler leveringsbevis');
   return flags;
@@ -47,7 +50,7 @@ function cargoOperationsFilter(source, options, incidents = [], documents = []) 
     if(options.owner && !['mine','unassigned','all'].includes(options.owner) && o.assigned_to!==options.owner)return false;
     const q=(options.query||'').trim().toLocaleLowerCase('nb-NO');
     if(q && ![o.order_number,o.customer,o.customer_reference,o.pickup_name,o.delivery_name,o.carrier_name,o.vehicle_registration].some(v=>String(v||'').toLocaleLowerCase('nb-NO').includes(q)))return false;
-    return !options.exceptions || cargoOperationFlags(o,incidents,documents,today).length>0;
+    return options.period==='cancelled' || !options.exceptions || cargoOperationFlags(o,incidents,documents,today).length>0;
   }).sort((a,b)=> {
     const score=o=>cargoOperationFlags(o,incidents,documents,today).reduce((n,f)=>n+(f.type==='danger'?10:1),0);
     return score(b)-score(a) || cargoDay(a.pickup_date||a.pickup_at).localeCompare(cargoDay(b.pickup_date||b.pickup_at)) || Number(a.order_number)-Number(b.order_number);
@@ -68,7 +71,7 @@ async function opsRead(table,orderId,sort='created_at') {
 }
 function installOperations() {
   const panel=document.createElement('section');panel.id='operationsPanel';panel.className='panel';
-  panel.innerHTML='<div class="ops-heading"><div><h2 style="margin:0">Arbeidsoversikt</h2><p class="muted">Lass som trenger oppfølging vises først. Alle datoer følger norsk tid.</p></div><button id="opsReload" class="btn white" type="button">Oppdater oversikten</button></div><div id="opsDashboardMessage" role="status"></div><div class="ops-filters"><label>Periode<select id="opsPeriod"><option value="near">I dag og i morgen</option><option value="today">I dag</option><option value="tomorrow">I morgen</option><option value="all">Alle ikke-kansellerte</option><option value="unbilled">Levert – ikke fakturert</option><option value="cancelled">Kansellerte</option></select></label><label>Ansvarlig<select id="opsOwner"><option value="all">Alle befraktere</option><option value="mine">Mine oppdrag</option><option value="unassigned">Ikke fordelt</option></select></label><label>Søk<input id="opsSearch" placeholder="Kunde, ref., sted eller bil"></label><label>Visning<select id="opsExceptions"><option value="all">Alle i utvalget</option><option value="exceptions">Kun oppfølgingspunkter</option></select></label></div><p id="opsCounts" class="ops-counts"></p><div id="opsList" class="ops-list"></div><div class="ops-pager"><button id="opsPrev" class="btn white" type="button">Forrige</button><span id="opsPage"></span><button id="opsNext" class="btn white" type="button">Neste</button></div>';
+  panel.innerHTML='<div class="ops-heading"><div><h2 style="margin:0">Arbeidsoversikt</h2><p class="muted">Ordre med åpne oppfølgingspunkter vises her. Når punktene er løst, forsvinner ordren fra oppfølgingen og finnes fortsatt under «Ordre og fakturakontroll».</p></div><button id="opsReload" class="btn white" type="button">Oppdater oversikten</button></div><div id="opsDashboardMessage" role="status"></div><div class="ops-filters"><label>Periode<select id="opsPeriod"><option value="near">I dag og i morgen</option><option value="today">I dag</option><option value="tomorrow">I morgen</option><option value="all">Alle ikke-kansellerte</option><option value="unbilled">Levert – ikke fakturert</option><option value="cancelled">Kansellerte</option></select></label><label>Ansvarlig<select id="opsOwner"><option value="all">Alle befraktere</option><option value="mine">Mine oppdrag</option><option value="unassigned">Ikke fordelt</option></select></label><label>Søk<input id="opsSearch" placeholder="Kunde, ref., sted eller bil"></label><label>Visning<select id="opsExceptions"><option value="exceptions">Trenger oppfølging</option><option value="all">Alle i utvalget</option></select></label></div><p id="opsCounts" class="ops-counts"></p><div id="opsList" class="ops-list"></div><div class="ops-pager"><button id="opsPrev" class="btn white" type="button">Forrige</button><span id="opsPage"></span><button id="opsNext" class="btn white" type="button">Neste</button></div>';
   $('cargoPanel').querySelector('.hero').after(panel);
   ['opsPeriod','opsOwner','opsExceptions'].forEach(id=>$(id).onchange=()=>{opsListPage=0;renderOperations();});
   $('opsSearch').oninput=()=>{opsListPage=0;renderOperations();};
@@ -108,11 +111,11 @@ function renderOperations() {
   for(const o of list.slice(first,first+opsPageSize)){
     const card=document.createElement('article');card.className='ops-row';
     const flags=cargoOperationFlags(o,opsIncidents,opsDocuments);
-    card.innerHTML='<div><h3>#'+esc(o.order_number)+' · '+esc(o.customer)+'</h3><div>'+pickupOverviewDate(o)+'</div><div class="muted">'+esc(o.pickup_name||'Ukjent hentested')+' → '+esc(o.delivery_name||'Ukjent lossested')+'</div><div>Kundereferanse: '+esc(o.customer_reference||'Mangler')+'</div><div class="ops-badges">'+flags.map(f=>'<span class="ops-badge '+f.type+'">'+esc(f.text)+'</span>').join('')+'</div></div><div><b>'+esc(opsName(o.assigned_to))+'</b><p>'+esc(o.carrier_name||'Ingen transportør')+' · '+esc(o.vehicle_registration||'Ingen bil')+'</p><div>'+esc(cargoStatusLabels[o.status]||o.status)+'</div><small>Opprettet av '+esc(creator(o))+'</small></div><div class="ops-controls"></div>';
+    card.innerHTML='<div><h3>#'+esc(o.order_number)+' · '+esc(o.customer)+'</h3><div>'+pickupOverviewDate(o)+'</div><div class="muted">'+esc(o.pickup_name||'Ukjent hentested')+' → '+esc(o.delivery_name||'Ukjent lossested')+'</div><div>Kundereferanse: '+esc(o.customer_reference||'Mangler')+'</div><div class="ops-badges">'+(flags.length?flags:[{text:o.status==='cancelled'?'Kansellert':'Ingen åpne oppfølgingspunkter',type:'good'}]).map(f=>'<span class="ops-badge '+f.type+'">'+esc(f.text)+'</span>').join('')+'</div></div><div><b>'+esc(opsName(o.assigned_to))+'</b><p>'+esc(o.carrier_name||'Ingen transportør')+' · '+esc(o.vehicle_registration||'Ingen bil')+'</p><div>'+esc(cargoStatusLabels[o.status]||o.status)+'</div><small>Opprettet av '+esc(creator(o))+'</small></div><div class="ops-controls"></div>';
     card.querySelector('.ops-controls').append(opsButton('Oppfølging',()=>openOrderFollowup(o.id),'blue'),opsButton('Åpne ordre',()=>openOrder(o.id)));
     $('opsList').append(card);
   }
-  if(!list.length)$('opsList').innerHTML='<div class="ops-empty">Ingen ordre i dette utvalget. Prøv «Alle ikke-kansellerte» eller en annen ansvarlig.</div>';
+  if(!list.length)$('opsList').innerHTML='<div class="ops-empty">'+(options.exceptions&&options.period!=='cancelled'?'Ingen åpne oppfølgingspunkter i dette utvalget. Ordrene finnes fortsatt under «Ordre og fakturakontroll», eller velg «Alle i utvalget».':'Ingen ordre i dette utvalget. Prøv «Alle ikke-kansellerte» eller en annen ansvarlig.')+'</div>';
   $('opsCounts').textContent=list.length+' ordre · '+list.filter(o=>cargoOperationFlags(o,opsIncidents,opsDocuments).some(f=>f.type==='danger')).length+' med kritiske oppfølgingspunkter';
   $('opsPage').textContent='Side '+(opsListPage+1)+' av '+Math.max(1,Math.ceil(list.length/opsPageSize));$('opsPrev').disabled=opsListPage===0;$('opsNext').disabled=first+opsPageSize>=list.length;
 }
@@ -153,7 +156,7 @@ function renderOrderFollowup(notes,incidents,documents,grants) {
     const row=document.createElement('div');row.className='ops-entry';row.innerHTML='<b>'+esc(CargoDocuments.categories[doc.category])+'</b> · '+esc(doc.filename)+'<br><small>'+esc(opsDate(doc.created_at))+' · '+(Number(doc.byte_size)/1024/1024).toFixed(2)+' MB · '+esc({pending:'Ufullført registrering',ready:'Registrert',withdrawn:'Trukket tilbake'}[doc.status])+'</small><div class="ops-controls"></div>';
     const buttons=row.querySelector('.ops-controls');
     if(doc.status==='ready')buttons.append(opsButton('Last ned',function(){opsRun(this,()=>CargoDocuments.download(s,doc));}));
-    if(doc.status==='pending'&&doc.uploaded_by===me.id)buttons.append(opsButton('Fullfør registrering',function(){opsRun(this,async()=>{await CargoDocuments.finish(s,doc.id);await openOrderFollowup(o.id);});}));
+    if(doc.status==='pending'&&doc.uploaded_by===me.id)buttons.append(opsButton('Fullfør registrering',function(){opsRun(this,async()=>{await CargoDocuments.finish(s,doc.id);await load();await openOrderFollowup(o.id);});}));
     if(doc.status!=='withdrawn')buttons.append(opsButton('Trekk tilbake',function(){opsRun(this,async()=>{if(!confirm('Trekk tilbake dokumentet? Filen beholdes, men kan ikke lastes ned fra appen.'))return;const r=await s.from('order_documents').update({status:'withdrawn'}).eq('id',doc.id);if(r.error)throw r.error;await load();await openOrderFollowup(o.id);});}));
     $('opsDocuments').append(row);
   }

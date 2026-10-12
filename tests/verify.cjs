@@ -283,11 +283,18 @@ async function verifyCapacityTab() {
 async function verifyLocations() {
  records.profiles[0].role='superuser';await run('session()');
  assert(!d.getElementById('usersBtn').classList.contains('hidden'));
+ // Registers stay collapsed until requested; refreshing data must preserve
+ // an open register and the existing create/edit and autofill handlers.
+ const dropdowns=[...d.querySelectorAll('#registerPanel details.registerDropdown')];
+ assert.equal(dropdowns.length,3);assert(dropdowns.every(el=>!el.open));
+ d.querySelector('#locationRegisterDropdown summary').click();
+ assert(d.getElementById('locationRegisterDropdown').open);
  d.getElementById('newLocationRegister').click();
  const form=d.getElementById('locationForm'),f=form.elements;
  f.name.value='Terminal Æ';f.location_type.value='both';f.address.value='Testveien 1';f.postal_code.value='0010';f.city.value='Oslo';f.contact_name.value='Terminalkontakt';f.phone.value='12345678';
  await form.onsubmit({preventDefault(){},target:form});
  assert.equal(records.locations.length,1);assert.equal(records.locations[0].postal_code,'0010');
+ assert(d.getElementById('locationRegisterDropdown').open);
  assert(d.getElementById('locationModal').classList.contains('hidden'));
  const pickup=d.querySelector('#form [name=pickup_name]');pickup.value='Terminal Æ';pickup.dispatchEvent(new w.Event('change'));
  assert.equal(d.querySelector('#form [name=pickup_address]').value,'Testveien 1, 0010, Oslo');
@@ -310,6 +317,7 @@ async function verifyLocations() {
  assert(d.getElementById('deliveryLocationRegister').textContent.includes('Kun lossing'));assert(!d.getElementById('locationRegister').textContent.includes('Kun lossing'));
  d.getElementById('newDeliveryLocationRegister').click();assert.equal(f.location_type.value,'delivery');d.getElementById('closeLocation').click();
  d.getElementById('pickupLocationTab').click();d.getElementById('newLocationRegister').click();assert.equal(f.location_type.value,'pickup');d.getElementById('closeLocation').click();
+ d.querySelector('#locationRegisterDropdown summary').click();assert(!d.getElementById('locationRegisterDropdown').open);
  console.log('PASS: separate pickup/delivery tabs with independent defaults; superuser Cargo access; location pre-save/edit, type-specific suggestions, duplicate prevention, main pickup/delivery and extra-stop autofill; existing order addresses unchanged.');
 }
 
