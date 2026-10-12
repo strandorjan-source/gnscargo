@@ -19,10 +19,10 @@ const records={
  customers:[customer], profiles:[{id:'test-user',full_name:'QA',email:'qa@example.invalid',role:'dispatcher'}],locations:[],carriers:[],order_stops:[],
  orders:[
  {id:'o1',order_number:600,customer:customer.name,customer_reference:'=1+1',created_at:'2026-09-30T22:30:00Z',pickup_at:'2026-10-01T23:30:00Z',delivery_at:'2026-10-02T10:00:00Z',pickup_name:'Test henting',delivery_name:'Test levering',goods:'Testgods',pallets:33,weight_kg:19800.5,customer_price:46500,carrier_price:35000,carrier_invoice_received:true,customer_invoice_sent:false},
- {id:'o2',order_number:601,customer:'Historisk Kunde AS',created_at:'2026-10-02T11:00:00Z',customer_price:0,carrier_invoice_received:false,customer_invoice_sent:false},
- {id:'o3',order_number:602,customer:customer.name,created_at:'2026-10-02T11:00:00Z',customer_price:null,carrier_invoice_received:true,customer_invoice_sent:false},
- {id:'o4',order_number:603,customer:customer.name,created_at:'2026-10-02T11:00:00Z',customer_price:20000,carrier_invoice_received:true,customer_invoice_sent:true},
- {id:'o5',order_number:604,customer:customer.name,created_at:'2026-09-30T10:00:00Z',customer_price:9000,carrier_invoice_received:true,customer_invoice_sent:false}
+ {id:'o2',order_number:601,customer:'Historisk Kunde AS',pickup_date:'2026-10-01',created_at:'2026-10-02T11:00:00Z',customer_price:0,carrier_invoice_received:false,customer_invoice_sent:false},
+ {id:'o3',order_number:602,customer:customer.name,pickup_date:'2026-10-01',created_at:'2026-10-02T11:00:00Z',customer_price:null,carrier_invoice_received:true,customer_invoice_sent:false},
+ {id:'o4',order_number:603,customer:customer.name,pickup_date:'2026-10-03',created_at:'2026-10-02T11:00:00Z',customer_price:20000,carrier_invoice_received:true,customer_invoice_sent:true},
+ {id:'o5',order_number:604,customer:customer.name,pickup_date:'2026-09-30',created_at:'2026-09-30T10:00:00Z',customer_price:9000,carrier_invoice_received:true,customer_invoice_sent:false}
  ]
 };
 let failCustomer=false;let mutations=[];
@@ -114,7 +114,19 @@ async function submitCustomer(name){d.querySelector('#customerForm [name=name]')
  assert(d.querySelector('#editForm [name=weight_kg]').closest('label').textContent.includes('Valgfritt'));
  d.getElementById('addPickup').click();await tick();
  assert(d.querySelector('#extraPickups [data-k=weight_kg]').closest('label').textContent.includes('Valgfritt'));
- // Oslo month boundary, invoice states, customer filter and missing vs. zero price.
+ // Loading date controls both month and order, including legacy timestamps in Oslo.
+ const dateOrders=[
+  {order_number:4,customer:'A',created_at:'2026-10-01',pickup_date:'2026-11-01'},
+  {order_number:3,customer:'Z',created_at:'2026-09-01',pickup_date:'2026-10-03',pickup_at:'2026-11-01T00:00:00Z'},
+  {order_number:2,customer:'Z',created_at:'2026-09-01',pickup_at:'2026-09-30T22:30:00Z'},
+  {order_number:1,customer:'Z',pickup_date:'2026-10-01'},
+  {order_number:0,customer:'A',created_at:'2026-10-01'}
+ ];
+ w.dateOrders=dateOrders;
+ assert.equal(run("reportOrders(window.dateOrders,{month:'2026-10',scope:'all'}).map(o=>o.order_number).join(',')"),'1,2,3');
+ assert.equal(run("reportOrders(window.dateOrders,{month:'',scope:'all'}).map(o=>o.order_number).join(',')"),'1,2,3,4,0');
+ assert.equal(dateOrders.map(o=>o.order_number).join(','),'4,3,2,1,0');
+ // Invoice states, customer filter and missing vs. zero price.
  assert.equal(run("reportOrders(orders,{month:'2026-10',scope:'unbilled',customer:''}).length"),3);
  assert.equal(run("reportOrders(orders,{month:'2026-10',scope:'billing',customer:''}).length"),2);
  assert.equal(run("reportOrders(orders,{month:'2026-10',scope:'done',customer:''}).length"),1);
@@ -126,6 +138,8 @@ async function submitCustomer(name){d.querySelector('#customerForm [name=name]')
  await run('exportInvoiceExcel()');
  assert(downloadedBlob);assert.equal(JSON.stringify(records.orders),before);assert.equal(mutations.length,beforeMutations);
  const exported = new w.ExcelJS.Workbook(); await exported.xlsx.load(new w.Uint8Array(await downloadedBlob.arrayBuffer())); const invoicing=exported.getWorksheet('Fakturagrunnlag');
+ assert.equal(invoicing.getCell('D4').value,'Lastedato');assert(invoicing.getCell('A2').value.startsWith('Lastemåned: 2026-10'));
+ assert.equal([5,6,7].map(row=>invoicing.getCell('A'+row).value).join(','),'GNS-601,GNS-602,GNS-600');
  assert(invoicing.getCell('L4').value.includes('Inngående faktura fra transportør')); assert(invoicing.getCell('P4').value.includes('Til fakturering kunde'));
  const invoiceRows=[];invoicing.eachRow(row=>{if(row.getCell(1).value==='GNS-600')invoiceRows.push(row)});assert.equal(invoiceRows[0].getCell(12).value,35000);assert.equal(invoiceRows[0].getCell(13).value,46500);
  assert.notEqual(invoiceRows[0].getCell(12).fill.fgColor.argb,invoiceRows[0].getCell(13).fill.fgColor.argb);

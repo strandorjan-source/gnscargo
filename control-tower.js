@@ -268,16 +268,20 @@ function osloDate(value) {
   return parts.year + '-' + parts.month + '-' + parts.day;
 }
 
+function reportLoadingDate(order) {
+  return osloDate(order.pickup_date) || osloDate(order.pickup_at);
+}
+
 function reportOrders(source = orders, options = reportOptions()) {
   return source.filter(order => {
-    if (options.month && !osloDate(order.created_at).startsWith(options.month)) return false;
+    if (options.month && !reportLoadingDate(order).startsWith(options.month)) return false;
     if (options.customer && normalizeCustomer(order.customer) !== options.customer) return false;
     if (['unbilled', 'billing'].includes(options.scope) && order.status === 'cancelled') return false;
     if (options.scope === 'unbilled') return !order.customer_invoice_sent;
     if (options.scope === 'billing') return order.carrier_invoice_received && !order.customer_invoice_sent;
     if (options.scope === 'done') return !!order.customer_invoice_sent;
     return true;
-  }).sort((a, b) => String(a.customer || '').localeCompare(String(b.customer || ''), 'nb') || Number(a.order_number) - Number(b.order_number));
+  }).sort((a, b) => (reportLoadingDate(a) || '9999-12-31').localeCompare(reportLoadingDate(b) || '9999-12-31') || Number(a.order_number) - Number(b.order_number));
 }
 
 function reportOptions() {
@@ -353,7 +357,7 @@ function buildInvoiceWorkbook(ExcelJS, list, register, options) {
   workbook.creator = 'GNS Cargo AS';
   workbook.created = new Date();
   const sheet = workbook.addWorksheet('Fakturagrunnlag');
-  const headings = ['GNS-referanse', 'Kunde', 'Kundereferanse', 'Hentedato', 'Leveringsdato', 'Hentested', 'Leveringssted', 'Gods', 'Paller', 'Nettovekt (kg)', 'Transportør', 'Inngående faktura fra transportør – avtalt frakt (NOK)', 'Fraktsum til kunde uten diesel (NOK)', 'Dieseltillegg (%)', 'Dieseltillegg (NOK)', 'Til fakturering kunde – total inkl. diesel (NOK)', 'Status kundefakturering'];
+  const headings = ['GNS-referanse', 'Kunde', 'Kundereferanse', 'Lastedato', 'Leveringsdato', 'Hentested', 'Leveringssted', 'Gods', 'Paller', 'Nettovekt (kg)', 'Transportør', 'Inngående faktura fra transportør – avtalt frakt (NOK)', 'Fraktsum til kunde uten diesel (NOK)', 'Dieseltillegg (%)', 'Dieseltillegg (NOK)', 'Til fakturering kunde – total inkl. diesel (NOK)', 'Status kundefakturering'];
   const pricing = list.map(customerReportPricing);
   const scopeLabels = { unbilled: 'Ikke fakturert', billing: 'Til fakturering – transportørfaktura mottatt', all: 'Alle ordre', done: 'Ferdig fakturert' };
   const missing = list.filter(order => !hasPrice(order)).length;
@@ -366,7 +370,7 @@ function buildInvoiceWorkbook(ExcelJS, list, register, options) {
   sheet.getRow(1).height = 30;
   sheet.getCell('A1').font = { name: 'Calibri', size: 18, bold: true, color: { argb: 'FF071B31' } };
   sheet.mergeCells('A2:Q2');
-  sheet.getCell('A2').value = 'Opprettet måned: ' + (options.month || 'Alle') + ' | ' + scopeLabels[options.scope] + ' | ' + list.length + ' ordre | Lastet ned ' + osloDate(new Date());
+  sheet.getCell('A2').value = 'Lastemåned: ' + (options.month || 'Alle') + ' | ' + scopeLabels[options.scope] + ' | ' + list.length + ' ordre | Lastedato: eldste først | Lastet ned ' + osloDate(new Date());
   sheet.mergeCells('A3:Q3');
   sheet.getCell('A3').value = 'Blå kolonne = forventet inngående faktura fra transportør. Grønne kolonner = fraktsum, diesel og total til kunde. Kundens total inkluderer diesel; tillegget skal ikke legges til på nytt. Mva håndteres i fakturasystemet. Eldre ordre uten separat dieselspesifikasjon beholder registrert pris som fraktsum og 0 i diesel.' + (incomplete ? ' Gule felt mangler pris eller spesifikasjon.' : '');
   sheet.getCell('A3').font = { italic: true, color: { argb: incomplete ? 'FF805600' : 'FF536273' }, size: 11 };
