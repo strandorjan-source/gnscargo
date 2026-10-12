@@ -299,6 +299,7 @@ function updateReportSummary() {
 }
 
 function refreshOrderTools() {
+  if (typeof refreshPowerOffice === 'function') refreshPowerOffice();
   if (typeof refreshOperations === 'function') refreshOperations();
   if (typeof refreshCarrierTools === 'function') refreshCarrierTools();
   if (typeof refreshLocationTools === 'function') refreshLocationTools();
