@@ -81,6 +81,31 @@ async function submitCustomer(name){d.querySelector('#customerForm [name=name]')
 (async()=>{
  await tick();
  assert(!d.getElementById('app').classList.contains('hidden'));
+ // Margin cards are first in the overview; month selection is independent of report filters.
+ assert(d.querySelector('.hero').firstElementChild.classList.contains('margin-overview'));
+ const marginOrders = [
+  {id:'m1',status:'created',pickup_date:'2026-09-30',customer_price:1090,carrier_price:800,created_at:'2026-10-05'},
+  {id:'m2',status:'delivered',pickup_at:'2026-09-30T22:30:00Z',customer_price:100,carrier_price:150},
+  {id:'m3',status:'invoiced',pickup_date:'2026-10-15',customer_price:0,carrier_price:0},
+  {id:'m4',status:'created',customer_price:10.10,carrier_price:0.20},
+  {id:'m5',status:'cancelled',pickup_date:'2026-10-01',customer_price:999999,carrier_price:0},
+  {id:'m6',status:'created',pickup_date:'2026-10-01',customer_price:null,carrier_price:20}
+ ];
+ w.marginTestOrders=marginOrders;
+ assert.deepEqual(JSON.parse(JSON.stringify(run("marginSummary(window.marginTestOrders,'2026-10')"))),{
+  total:{count:5,amount:229.9,missing:1},month:{count:3,amount:-70,missing:1}
+ });
+ run('window.originalMarginOrders=orders;orders=window.marginTestOrders;refreshMarginOverview()');
+ const marginMonth=d.getElementById('marginMonth');
+ marginMonth.value='2026-09';marginMonth.dispatchEvent(new w.Event('change'));
+ assert.equal(d.getElementById('sMonthMargin').textContent,run('nok(290)'));
+ assert.equal(d.getElementById('sMargin').textContent,run('nok(229.9)'));
+ run('refreshOrderTools()');assert.equal(marginMonth.value,'2026-09');
+ marginMonth.value='undated';marginMonth.dispatchEvent(new w.Event('change'));
+ assert.equal(d.getElementById('sMonthMargin').textContent,run('nok(9.9)'));
+ assert.equal(d.getElementById('marginMissingNote').hidden,false);
+ assert.equal(run("marginSummary(window.marginTestOrders,'2027-01').month.amount"),0);
+ run('orders=window.originalMarginOrders;refreshMarginOverview()');
  assert(d.getElementById('customer').required);assert(d.getElementById('pickup_name').required);
  assert.equal(d.querySelector('#form [name=weight_kg]').required,false);
  assert.equal(d.getElementById('customer').closest('.customer-field').querySelector('.field-badge').textContent,'Obligatorisk');

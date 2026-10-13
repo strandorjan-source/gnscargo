@@ -13,5 +13,5 @@ for(const file of files)fs.copyFileSync(path.join(root,file),path.join(output,fi
 fs.mkdirSync(path.join(output,'vendor'));
 fs.copyFileSync(path.join(root,'vendor/exceljs-4.4.0.min.js'),path.join(output,'vendor/exceljs-4.4.0.min.js'));
 fs.copyFileSync(path.join(root,'tests/node_modules/jspdf/dist/jspdf.umd.min.js'),path.join(output,'vendor/jspdf-4.2.1.umd.min.js'));
-fs.writeFileSync(path.join(output,'release.json'),JSON.stringify({release:'poweroffice-drafts-20261012',commit:process.env.VERCEL_GIT_COMMIT_SHA||process.env.GITHUB_SHA||'local',checks:'passed'})+'\n');
+fs.writeFileSync(path.join(output,'release.json'),JSON.stringify({release:'monthly-margin-20261013',commit:process.env.VERCEL_GIT_COMMIT_SHA||process.env.GITHUB_SHA||'local',checks:'passed'})+'\n');
 console.log('PASS: release gate; public output includes only allowlisted application assets.');

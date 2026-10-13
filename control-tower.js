@@ -272,6 +272,49 @@ function reportLoadingDate(order) {
   return osloDate(order.pickup_date) || osloDate(order.pickup_at);
 }
 
+function marginSummary(source, month) {
+  const active = source.filter(order => order.status !== 'cancelled');
+  const selected = active.filter(order => (reportLoadingDate(order).slice(0, 7) || 'undated') === month);
+  const summarize = list => ({
+    count: list.length,
+    amount: list.reduce((cents, order) => cents + Math.round((reportNumber(order.customer_price) ?? 0) * 100) - Math.round((reportNumber(order.carrier_price) ?? 0) * 100), 0) / 100,
+    missing: list.filter(order => reportNumber(order.customer_price) === null || reportNumber(order.carrier_price) === null).length
+  });
+  return { total: summarize(active), month: summarize(selected) };
+}
+
+function refreshMarginOverview() {
+  const select = $('marginMonth');
+  if (!select) return;
+  const currentMonth = osloDate(new Date()).slice(0, 7);
+  const selected = select.value || currentMonth;
+  const months = new Set([currentMonth]);
+  if (selected !== 'undated') months.add(selected);
+  let undated = selected === 'undated';
+  for (const order of orders) {
+    if (order.status === 'cancelled') continue;
+    const month = reportLoadingDate(order).slice(0, 7);
+    if (month) months.add(month); else undated = true;
+  }
+  const formatter = new Intl.DateTimeFormat('nb-NO', { month: 'long', year: 'numeric', timeZone: 'Europe/Oslo' });
+  const options = [...months].sort().reverse().map(month => new Option(formatter.format(new Date(month + '-15T12:00:00Z')), month));
+  if (undated) options.push(new Option('Uten lastedato', 'undated'));
+  // Preserve the focused selector during the background refresh when its options are unchanged.
+  const signature = options.map(option => option.value).join(',');
+  if (select.dataset.months !== signature) {
+    select.replaceChildren(...options);
+    select.dataset.months = signature;
+  }
+  select.value = selected;
+  const summary = marginSummary(orders, selected);
+  $('sMargin').textContent = nok(summary.total.amount);
+  $('sMonthMargin').textContent = nok(summary.month.amount);
+  const detail = item => item.count + ' ordre' + (item.missing ? ' · ' + item.missing + ' mangler pris' : '');
+  $('sMarginDetail').textContent = detail(summary.total) + ' · Alle måneder';
+  $('sMonthMarginDetail').textContent = detail(summary.month);
+  $('marginMissingNote').hidden = !summary.total.missing;
+}
+
 function reportOrders(source = orders, options = reportOptions()) {
   return source.filter(order => {
     if (options.month && !reportLoadingDate(order).startsWith(options.month)) return false;
@@ -299,6 +342,7 @@ function updateReportSummary() {
 }
 
 function refreshOrderTools() {
+  refreshMarginOverview();
   if (typeof refreshPowerOffice === 'function') refreshPowerOffice();
   if (typeof refreshOperations === 'function') refreshOperations();
   if (typeof refreshCarrierTools === 'function') refreshCarrierTools();
@@ -496,4 +540,5 @@ $('editStops').addEventListener('change', enhanceOrderFields);
 $('newCustomerRegister').onclick = () => openCustomerForm($('customer'));
 ['month', 'reportScope', 'reportCustomer'].forEach(id => $(id).addEventListener('change', updateReportSummary));
 $('invoiceExcel').onclick = exportInvoiceExcel;
+$('marginMonth').addEventListener('change', refreshMarginOverview);
 refreshOrderTools();
