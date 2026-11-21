@@ -1,6 +1,6 @@
 'use strict';
 // Uses the signed-in Cargo session. API credentials are only available on the server.
-const powerOffice = { options: null, exports: [], busy: false };
+const powerOffice = { options: null, exports: null, busy: false };
 const powerOfficeLabels = { creating: 'Overføring pågår', draft: 'Utkast i PowerOffice', invoiced: 'Fakturert', paid: 'Betalt', partially_paid: 'Delvis betalt', overpaid: 'Til gode', reversed: 'Reversert', uncertain: 'Må kontrolleres', missing: 'Ikke funnet i PowerOffice' };
 
 function installPowerOffice() {
@@ -19,11 +19,13 @@ function installPowerOffice() {
     '<div id="poMessage" role="status" aria-live="polite"></div><div id="poHistory" style="overflow:auto"></div>';
   $('reportSummary').parentElement.append(panel);
   $('poConnect').onclick = async () => poAction(async () => {
+    powerOffice.exports = null;
     powerOffice.options = await poCall({ action: 'options' });
     const options = powerOffice.options;
     $('poEnvironment').textContent = options.environment === 'demo' ? 'TESTMILJØ – dette lager testutkast i PowerOffice-demo. Ingen ekte fakturaer opprettes.' : 'PowerOffice – produksjon. Utkast sendes manuelt fra PowerOffice.';
     $('poControls').classList.remove('hidden');
     $('poCustomer').replaceChildren(new Option('Velg kunde', ''));
+    delete $('poCustomer').dataset.order;
     options.customers.forEach(c => $('poCustomer').add(new Option(`${c.number} · ${c.name}${c.org ? ' · ' + c.org : ''}`, c.id)));
     for (const id of ['poFreight', 'poDiesel']) {
       $(id).replaceChildren(new Option('Velg produkt', ''));
@@ -36,6 +38,10 @@ function installPowerOffice() {
   $('poCreate').onclick = async () => poAction(async () => {
     const order = orders.find(o => o.id === $('poOrder').value);
     if (!order) throw new Error('Velg en Cargo-ordre.');
+    if (!poCustomerMatchesOrder(order) || !$('poCustomer').value) {
+      poMatchCustomer();
+      throw new Error('Kontroller kunden i PowerOffice før overføring.');
+    }
     const data = await poCall({ action: 'create', orderId: order.id, expectedRevision: order.revision, customerId: Number($('poCustomer').value), freightProductId: Number($('poFreight').value), dieselProductId: Number($('poDiesel').value) });
     await poLoadExports(); refreshPowerOffice();
     note($('poMessage'), data.export.error_message || (data.alreadyExists ? 'Ordren er allerede overført. Eksisterende utkast/status er hentet.' : 'Fakturautkast opprettet i PowerOffice. Kontroller utkastet der før fakturering.'), !!data.export.error_message);
@@ -49,7 +55,7 @@ function installPowerOffice() {
   ['month', 'reportScope', 'reportCustomer'].forEach(id => $(id).addEventListener('change', refreshPowerOffice));
   s.auth?.onAuthStateChange((event) => {
     if (event !== 'SIGNED_OUT') return;
-    powerOffice.options = null; powerOffice.exports = [];
+    powerOffice.options = null; powerOffice.exports = null;
     $('poControls').classList.add('hidden'); $('poHistory').replaceChildren();
     $('poMessage').replaceChildren(); $('powerOfficePanel').open = false;
     for (const id of ['poOrder','poCustomer','poFreight','poDiesel']) $(id).replaceChildren(new Option('Velg', ''));
@@ -74,9 +80,26 @@ async function poAction(action) {
   finally { powerOffice.busy = false; $('powerOfficePanel').querySelectorAll('button,select').forEach(el => el.disabled = false); poPreview(); }
 }
 async function poLoadExports() {
-  const { data, error } = await s.from('poweroffice_exports').select('order_id,environment,state,sales_order_number,invoice_number,balance,invoice_total,source_revision,error_message,last_synced_at').eq('environment', powerOffice.options.environment).order('updated_at', { ascending: false }).limit(200);
-  if (error) throw new Error('Kunne ikke hente overføringsstatus fra Cargo.');
-  powerOffice.exports = data || [];
+  const options = powerOffice.options;
+  const rows = [];
+  let after = null;
+  for (;;) {
+    let query = s.from('poweroffice_exports')
+      .select('order_id,environment,state,sales_order_number,invoice_number,balance,invoice_total,source_revision,error_message,last_synced_at,updated_at')
+      .eq('environment', options.environment).order('order_id').limit(200);
+    if (after) query = query.gt('order_id', after);
+    const { data, error } = await query;
+    if (options !== powerOffice.options) return;
+    if (error) {
+      powerOffice.exports = null;
+      refreshPowerOffice();
+      throw new Error('Kunne ikke hente overføringsstatus. Last inn PowerOffice på nytt.');
+    }
+    if (!data.length) break;
+    rows.push(...data);
+    after = data[data.length - 1].order_id;
+  }
+  powerOffice.exports = rows.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
 }
 function refreshPowerOffice() {
   if (!powerOffice.options || !$('poOrder')) return;
@@ -84,8 +107,10 @@ function refreshPowerOffice() {
   $('poOrder').replaceChildren(new Option('Velg ordre', ''));
   for (const o of reportOrders()) $('poOrder').add(new Option(`${o.reference || o.order_number} · ${o.customer || ''} · ${reportLoadingDate(o)} · ${nok(o.customer_price)}`, o.id));
   if ([...$('poOrder').options].some(o => o.value === selected)) $('poOrder').value = selected;
+  const order = orders.find(o => o.id === $('poOrder').value);
+  if (!poCustomerMatchesOrder(order)) poMatchCustomer();
   const visible = new Set(reportOrders().map(o => o.id));
-  const rows = powerOffice.exports.filter(x => visible.has(x.order_id));
+  const rows = (powerOffice.exports || []).filter(x => visible.has(x.order_id));
   $('poHistory').innerHTML = rows.length ? '<table><thead><tr><th>Ordre</th><th>Status</th><th>PO-ordre</th><th>Faktura</th><th>Restbeløp</th><th>Sist hentet</th></tr></thead><tbody>' + rows.map(x => {
     const order = orders.find(o => o.id === x.order_id);
     const changed = order && Number(order.revision) !== Number(x.source_revision);
@@ -93,8 +118,14 @@ function refreshPowerOffice() {
   }).join('') + '</tbody></table>' : '<p class="muted">Ingen overførte ordre i dette rapportutvalget.</p>';
   poPreview();
 }
+function poCustomerMatchesOrder(order) {
+  const binding = $('poCustomer').dataset;
+  return binding.order === (order?.id || '') && binding.customer === normalizeCustomer(order?.customer);
+}
 function poMatchCustomer() {
   const order = orders.find(o => o.id === $('poOrder').value);
+  $('poCustomer').dataset.order = order?.id || '';
+  $('poCustomer').dataset.customer = normalizeCustomer(order?.customer);
   const local = customers.find(c => normalizeCustomer(c.name) === normalizeCustomer(order?.customer));
   const normalizeOrg = value => String(value || '').replace(/\D/g, '');
   let matches = powerOffice.options.customers.filter(c => local?.org_number && normalizeOrg(c.org) === normalizeOrg(local.org_number));
@@ -104,11 +135,11 @@ function poMatchCustomer() {
 function poPreview() {
   if (!$('poOrder')) return;
   const order = orders.find(o => o.id === $('poOrder').value);
-  const exported = powerOffice.exports.find(x => x.order_id === order?.id);
-  $('poCreate').disabled = powerOffice.busy || !order || order.status === 'cancelled' || order.customer_invoice_sent || !!exported;
+  const exported = powerOffice.exports?.find(x => x.order_id === order?.id);
+  const retryable = exported && ['uncertain', 'missing'].includes(exported.state);
+  $('poCreate').disabled = powerOffice.busy || !powerOffice.exports || !order || order.status === 'cancelled' ||
+    order.customer_invoice_sent || !$('poCustomer').value || (!!exported && !retryable);
   $('poSync').disabled = powerOffice.busy || !exported;
-  // Uncertain transfers can only be retried with the original immutable payload.
-  if (exported && ['uncertain', 'missing'].includes(exported.state) && !powerOffice.busy) $('poCreate').disabled = false;
   $('poPreview').textContent = order ? `Frakt: ${nok(customerReportPricing(order).base)} · Diesel: ${nok(customerReportPricing(order).diesel)} · Til kunde: ${nok(order.customer_price)} ekskl. MVA. ${exported ? powerOfficeLabels[exported.state] || exported.state : ''}` : '';
 }
 installPowerOffice();

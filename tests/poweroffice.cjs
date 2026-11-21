@@ -20,6 +20,7 @@ const root = path.join(__dirname, '..');
   assert.throws(() => pricing({ ...order, customer_base_price: null }));
   assert.equal(pricing({ customer_price: 100, customer_diesel_percent: 0 }).base, 100);
   assert.equal(pricing({ customer_price: 0.06, customer_base_price: 0.05, customer_diesel_percent: 10, customer_diesel_amount: 0.01 }).diesel, 0.01);
+  assert.equal(pricing({ customer_base_price:32008.50, customer_diesel_percent:7, customer_diesel_amount:2240.60, customer_price:34249.10 }).total,34249.10);
   for (const [balance, total, state] of [[null, 100, 'invoiced'], [100, 100, 'invoiced'], [30, 100, 'partially_paid'], [0, 100, 'paid'], [-5, 100, 'overpaid']]) assert.equal(invoiceState({ Balance: balance, TotalPostedAmount: total, InvoiceNo: 1 }).state, state);
   assert.equal(invoiceState({ IsReversed: true, Balance: 0, InvoiceNo: 1 }).state, 'reversed');
   let exported, draft, count = 0, role = 'dispatcher', validUser = true, simulateLostResponse = false;
@@ -64,21 +65,55 @@ const root = path.join(__dirname, '..');
   assert.equal((await invoke(create)).data.alreadyExists, true); assert.equal(count, 1);
   assert.equal((await invoke({ action: 'sync', orderId: order.id })).data.export.state, 'draft');
 
+  draft.NetAmount = 43599;
+  const sync = async () => (await invoke({ action:'sync',orderId:order.id })).data.export;
+  const warning=(await sync()).error_message;assert.match(warning,/avviker/);
+  delete draft.NetAmount;assert.equal((await sync()).error_message,warning);
+  draft.NetAmount=43599;assert.equal((await sync()).error_message,warning);
+  draft.NetAmount=43600;assert.equal((await sync()).error_message,null);
+
+  const originalDraft=draft;
+  draft=null;exported.state='uncertain';
+  assert.equal((await invoke({...create,customerId:11})).status,409);
+  assert.equal(count,1);
+  draft=originalDraft;await sync();
+
   // Real DOM event handlers with the same module shipped to Cargo.
   const dom = new JSDOM('<section><input id="month"><select id="reportScope"></select><select id="reportCustomer"></select><div id="reportSummary"></div></section>', { runScripts: 'outside-only' });
   const w = dom.window; let calls = [];
-  const prelude = `const orders=${JSON.stringify([order])}, customers=[]; const $=id=>document.getElementById(id); const esc=v=>String(v??'').replaceAll('<','&lt;'); const nok=v=>String(v); const fmt=v=>v||'—'; const normalizeCustomer=v=>String(v||'').toLowerCase(); const reportOrders=()=>orders; const reportLoadingDate=o=>o.pickup_date; const customerReportPricing=o=>({base:o.customer_base_price,diesel:o.customer_diesel_amount}); function note(el,t){el.textContent=t;}`;
+  w.testOrders=[{...order},{...order,id:'zz-older',order_number:800099}];
+  const prior=Array.from({length:205},(_,i)=>({...exported,order_id:'prior-'+String(i).padStart(3,'0')}));
+  prior.push({...exported,order_id:'zz-older'});
+  const prelude = `const orders=window.testOrders, customers=[]; const $=id=>document.getElementById(id); const esc=v=>String(v??'').replaceAll('<','&lt;'); const nok=v=>String(v); const fmt=v=>v||'—'; const normalizeCustomer=v=>String(v||'').toLowerCase(); const reportOrders=()=>orders; const reportLoadingDate=o=>o.pickup_date; const customerReportPricing=o=>({base:o.customer_base_price,diesel:o.customer_diesel_amount}); function note(el,t){el.textContent=t;}`;
   w.s = { functions: { invoke: async (_, { body }) => {
     calls.push(body);
-    return { data: body.action === 'options' ? { environment: 'demo', customers: [{ id: 10, number: 1, name: 'Testkunde' }], products: [{ id: 20, code: 'F', name: 'Frakt' }, { id: 21, code: 'D', name: 'Diesel' }] } : { export: exported } };
-  } }, from: () => { const q = { select: () => q, eq: () => q, order: () => q, limit: async () => ({ data: calls.some(x => x.action === 'create') ? [exported] : [] }) }; return q; } };
+    return { data: body.action === 'options' ? { environment: 'demo', customers: [{ id: 10, number: 1, name: 'Testkunde' }, {id:11, number:2, name:'Ny kunde'}], products: [{ id: 20, code: 'F', name: 'Frakt' }, { id: 21, code: 'D', name: 'Diesel' }] } : { export: exported } };
+  } }, from: () => {
+    let after='', limit=0;
+    const q={select:()=>q,eq:()=>q,order:()=>q,limit:n=>{limit=n;return q;},gt:(_,value)=>{after=value;return q;},
+      then:resolve=>{const rows=calls.some(x=>x.action==='create')?[exported,...prior]:prior;
+        resolve({data:rows.filter(row=>row.order_id>after).slice(0,limit)});}};
+    return q;
+  } };
   w.eval(prelude + fs.readFileSync(path.join(root, 'poweroffice.js'), 'utf8'));
   await w.document.getElementById('poConnect').onclick();
   assert.match(w.document.getElementById('poEnvironment').textContent, /TESTMILJØ/);
   w.document.getElementById('poOrder').value = order.id; w.document.getElementById('poOrder').onchange();
   assert.equal(w.document.getElementById('poCustomer').value, '10');
   w.document.getElementById('poFreight').value = '20'; w.document.getElementById('poDiesel').value = '21';
+  const chooseOrder=id=>{const select=w.document.getElementById('poOrder');select.value=id;select.onchange();};
+  chooseOrder('zz-older');
+  assert.equal(w.document.getElementById('poSync').disabled,false);
+  assert.equal(w.document.getElementById('poCreate').disabled,true);
+  chooseOrder(order.id);
+  const buyer=w.document.getElementById('poCustomer');
+  buyer.value='11';w.refreshPowerOffice();assert.equal(buyer.value,'11','same buyer preserves a manual selection');
+  buyer.value='10';w.testOrders[0].customer='Ukjent kunde';w.testOrders[0].revision++;
+  w.refreshPowerOffice();assert.equal(buyer.value,'');assert(w.document.getElementById('poCreate').disabled);
+  w.testOrders[0].customer='Ny kunde';w.testOrders[0].revision++;w.refreshPowerOffice();
+  assert.equal(buyer.value,'11');
   await w.document.getElementById('poCreate').onclick();
+  assert.equal(calls.at(-1).customerId,11);assert.equal(calls.at(-1).expectedRevision,3);
   assert.equal(calls.at(-1).orderId, order.id); assert.ok(w.document.getElementById('poCreate').disabled);
   await w.document.getElementById('poSync').onclick(); assert.equal(calls.at(-1).action, 'sync');
   dom.window.close();

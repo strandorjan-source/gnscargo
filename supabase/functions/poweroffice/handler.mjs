@@ -1,5 +1,15 @@
 import { IntegrationError, PowerOffice, draftPayload, field, invoiceState, money } from './core.mjs';
 
+const draftMismatch = 'Utkastet er opprettet, men sum i PowerOffice avviker. Kontroller utkastet før fakturering.';
+function draftState(draft, existing) {
+  const id = field(draft, 'Id');
+  if (!id) throw new IntegrationError('Uventet svar fra PowerOffice. Oppdater status før ny prøve.', 502);
+  const expected = money(existing.payload.SalesOrderLines.reduce((sum, line) => sum + line.ProductUnitPrice * line.Quantity, 0));
+  const net = field(draft, 'NetAmount');
+  const mismatch = net == null ? existing.error_message === draftMismatch : money(net) !== expected;
+  return { state: 'draft', sales_order_id: id, sales_order_number: field(draft, 'SalesOrderNo'), error_message: mismatch ? draftMismatch : null };
+}
+
 export async function handleRequest(request, env, fetcher = fetch) {
   const origin = request.headers.get('Origin');
   const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Vary: 'Origin', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -48,8 +58,8 @@ export async function handleRequest(request, env, fetcher = fetch) {
       if (!existing) throw new IntegrationError('Ordren er ikke overført.');
       if (existing.state === 'creating' && Date.now() - Date.parse(existing.updated_at) < 120000) throw new IntegrationError('Overføringen pågår. Prøv igjen om litt.', 409);
       const found = await po.findExport(existing.external_reference);
-      const values = found?.invoice ? invoiceState(found.invoice) : found?.draft ? { state: 'draft', sales_order_id: field(found.draft, 'Id'), sales_order_number: field(found.draft, 'SalesOrderNo') } : { state: 'missing', error_message: 'Fant ikke utkast eller faktura i PowerOffice. Kontroller før ny overføring.' };
-      return reply({ export: await save({ ...values, ...(found ? { error_message: null } : {}), last_synced_at: new Date().toISOString() }) });
+      const values = found?.invoice ? invoiceState(found.invoice) : found?.draft ? draftState(found.draft, existing) : { state: 'missing', error_message: 'Fant ikke utkast eller faktura i PowerOffice. Kontroller før ny overføring.' };
+      return reply({ export: await save({ error_message: null, ...values, last_synced_at: new Date().toISOString() }) });
     }
     if (existing && ['draft', 'invoiced', 'paid', 'partially_paid', 'overpaid', 'reversed'].includes(existing.state)) return reply({ export: existing, alreadyExists: true });
     if (Number(body.expectedRevision) !== Number(order.revision)) throw new IntegrationError('Ordren ble endret. Oppdater Cargo og prøv igjen.', 409);
@@ -69,11 +79,11 @@ export async function handleRequest(request, env, fetcher = fetch) {
     let values;
     if (found?.invoice) values = invoiceState(found.invoice);
     else {
+      if (!found?.draft && existing.payload.CustomerId !== selection.customerId) {
+        throw new IntegrationError('Tidligere overføring gjelder en annen kunde. Kontroller den i PowerOffice før nytt utkast.', 409);
+      }
       const draft = found?.draft || await po.request('/SalesOrders/Complete', 'POST', existing.payload);
-      values = { state: 'draft', sales_order_id: field(draft, 'Id'), sales_order_number: field(draft, 'SalesOrderNo') };
-      if (!values.sales_order_id) throw new IntegrationError('Uventet svar fra PowerOffice. Oppdater status før ny prøve.', 502);
-      const expected = money(existing.payload.SalesOrderLines.reduce((sum, line) => sum + line.ProductUnitPrice * line.Quantity, 0));
-      if (field(draft, 'NetAmount') != null && money(field(draft, 'NetAmount')) !== expected) values = { ...values, error_message: 'Utkastet er opprettet, men sum i PowerOffice avviker. Kontroller utkastet før fakturering.' };
+      values = draftState(draft, existing);
     }
     const result = await save({ error_message: null, ...values, last_synced_at: new Date().toISOString() });
     claimed = null;

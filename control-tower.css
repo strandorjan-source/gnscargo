@@ -52,3 +52,16 @@
 .margin-month-label select{padding:7px 8px;min-height:34px;color:#122033;font-size:13px}
 .margin-help{max-width:1200px;margin:10px 0 0;color:#d4e4f1;font-size:11px;line-height:1.5}
 @media(max-width:700px){.margin-overview{grid-template-columns:1fr}.hero .stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+#rows tr.order-cancelled > td, .orderCard.order-cancelled, .ops-row.order-cancelled {
+  background-color: #fff0ef;
+}
+#rows tr.order-cancelled > td:first-child, .orderCard.order-cancelled, .ops-row.order-cancelled {
+  border-left: 4px solid #ad252b;
+}
+.cancelled-label {
+  display: inline-block;
+  margin: 2px 5px;
+  color: #911c24;
+  font-weight: 750;
+}

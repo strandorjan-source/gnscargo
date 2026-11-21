@@ -99,7 +99,7 @@ async function refreshOperations() {
     $('opsOwner').innerHTML='<option value="all">Alle befraktere</option><option value="mine">Mine oppdrag</option><option value="unassigned">Ikke fordelt</option>'+opsStaff.map(x=>'<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('');
     if([...$('opsOwner').options].some(x=>x.value===selected))$('opsOwner').value=selected;
     note($('opsDashboardMessage'),'');renderOperations();
-  }catch(e){note($('opsDashboardMessage'),'Oppfølgingsdata kunne ikke oppdateres. Oversikten kan være ufullstendig: '+e.message,true);renderOperations();}
+  }catch(e){note($('opsDashboardMessage'),'Oppfølgingen kunne ikke oppdateres. Prøver igjen automatisk.',true);renderOperations();}
   finally{opsRefreshBusy=false;if(opsRefreshAgain){opsRefreshAgain=false;refreshOperations();}}
 }
 function renderOperations() {
@@ -109,7 +109,7 @@ function renderOperations() {
   opsListPage=Math.max(0,Math.min(opsListPage,Math.ceil(list.length/opsPageSize)-1));
   const first=opsListPage*opsPageSize;$('opsList').replaceChildren();
   for(const o of list.slice(first,first+opsPageSize)){
-    const card=document.createElement('article');card.className='ops-row';
+    const card=document.createElement('article');card.className=o.status==='cancelled'?'ops-row order-cancelled':'ops-row';
     const flags=cargoOperationFlags(o,opsIncidents,opsDocuments);
     card.innerHTML='<div><h3>#'+esc(o.order_number)+' · '+esc(o.customer)+'</h3><div>'+pickupOverviewDate(o)+'</div><div class="muted">'+esc(o.pickup_name||'Ukjent hentested')+' → '+esc(o.delivery_name||'Ukjent lossested')+'</div><div>Kundereferanse: '+esc(o.customer_reference||'Mangler')+'</div><div class="ops-badges">'+(flags.length?flags:[{text:o.status==='cancelled'?'Kansellert':'Ingen åpne oppfølgingspunkter',type:'good'}]).map(f=>'<span class="ops-badge '+f.type+'">'+esc(f.text)+'</span>').join('')+'</div></div><div><b>'+esc(opsName(o.assigned_to))+'</b><p>'+esc(o.carrier_name||'Ingen transportør')+' · '+esc(o.vehicle_registration||'Ingen bil')+'</p><div>'+esc(cargoStatusLabels[o.status]||o.status)+'</div><small>Opprettet av '+esc(creator(o))+'</small></div><div class="ops-controls"></div>';
     card.querySelector('.ops-controls').append(opsButton('Oppfølging',()=>openOrderFollowup(o.id),'blue'),opsButton('Åpne ordre',()=>openOrder(o.id)));

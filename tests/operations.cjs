@@ -42,6 +42,11 @@ run(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
 for(const file of ['document-upload.js','order-entry.js','control-tower.js','operations.js'])run(fs.readFileSync(root+'/'+file,'utf8'));
 async function submit(form){form.dispatchEvent(new w.Event('submit',{cancelable:true,bubbles:true}));await tick();await tick();}
 (async()=>{await tick();await tick();
+ const period=d.getElementById('opsPeriod'), initialPeriod=period.value;
+ period.value='cancelled';run('renderOperations()');
+ assert.equal(d.querySelectorAll('#opsList .ops-row.order-cancelled').length,1);
+ assert(d.querySelector('#opsList .order-cancelled').textContent.includes('Kansellert'));
+ period.value=initialPeriod;run('renderOperations()');
  const flags=run("cargoOperationFlags(orders[1], [], [], '2026-10-07')");assert(flags.some(f=>f.text==='Mangler kundepris'));assert(flags.some(f=>f.text==='Mangler bil / transportør'));assert(!run('cargoKnownPrice(null)'));assert(run('cargoKnownPrice(0)'));
  // Completed work disappears from the follow-up queue without removing orders.
  assert.equal(d.getElementById('opsExceptions').value,'exceptions');

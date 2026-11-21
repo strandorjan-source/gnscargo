@@ -277,7 +277,7 @@ function marginSummary(source, month) {
   const selected = active.filter(order => (reportLoadingDate(order).slice(0, 7) || 'undated') === month);
   const summarize = list => ({
     count: list.length,
-    amount: list.reduce((cents, order) => cents + Math.round((reportNumber(order.customer_price) ?? 0) * 100) - Math.round((reportNumber(order.carrier_price) ?? 0) * 100), 0) / 100,
+    amount: list.reduce((cents, order) => cents + cargoMarginCents(order), 0) / 100,
     missing: list.filter(order => reportNumber(order.customer_price) === null || reportNumber(order.carrier_price) === null).length
   });
   return { total: summarize(active), month: summarize(selected) };

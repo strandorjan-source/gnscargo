@@ -11,7 +11,10 @@ export function pricing(order) {
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) throw new IntegrationError('Ugyldig dieselprosent.');
   const base = value(order.customer_base_price) ? money(order.customer_base_price) : (percent === 0 ? money(order.customer_price) : NaN);
   if (!Number.isFinite(base) || base < 0) throw new IntegrationError('Ordren mangler ordinær fraktpris.');
-  const diesel = money(base * percent / 100);
+  // Match Cargo and PostgreSQL: multiply integer øre by basis points, then round half up.
+  const cents = BigInt(Math.round(base * 100));
+  const basisPoints = BigInt(Math.round(percent * 100));
+  const diesel = Number((cents * basisPoints + 5000n) / 10000n) / 100;
   if (Math.abs(money(base + diesel) - money(order.customer_price)) > 0.001 ||
       (value(order.customer_diesel_amount) && Math.abs(money(order.customer_diesel_amount) - diesel) > 0.001)) {
     throw new IntegrationError('Frakt, diesel og total stemmer ikke. Lagre prisene på ordren på nytt.');

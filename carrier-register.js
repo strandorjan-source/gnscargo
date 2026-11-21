@@ -4,6 +4,7 @@ const carrierEdiLabel = system => ({opter: 'Opter – ikke tilkoblet', timpex: '
 const carrierNameKey = value => String(value || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('nb-NO');
 function fillCarrier(input, carrier) {
   input.value = carrier.name;
+  input.dataset.recipientCarrier = carrierNameKey(carrier.name);
   input.form.elements.carrier_email.value = carrier.email || '';
 }
 function installCarrierInputs() {
@@ -11,7 +12,19 @@ function installCarrierInputs() {
     const input = form.elements.carrier_name;
     if (!input || input.dataset.carrierPicker) continue;
     input.dataset.carrierPicker = 'true'; input.setAttribute('list', 'carrierList');
+    const rememberCarrier = () => { input.dataset.recipientCarrier = carrierNameKey(input.value); };
+    rememberCarrier();
+    input.addEventListener('focus', rememberCarrier);
+    const clearPreviousRecipient = () => {
+      const previous = input.dataset.recipientCarrier;
+      if (previous && previous !== carrierNameKey(input.value)) {
+        for (const key of ['carrier_email', 'carrier_contact', 'carrier_phone']) form.elements[key].value = '';
+      }
+      rememberCarrier();
+    };
+    input.addEventListener('input', clearPreviousRecipient);
     input.addEventListener('change', () => {
+      clearPreviousRecipient();
       const carrier = carriers.find(row => carrierNameKey(row.name) === carrierNameKey(input.value));
       if (carrier) fillCarrier(input, carrier);
     });

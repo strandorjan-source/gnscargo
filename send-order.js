@@ -105,21 +105,6 @@ function installCarrierPricing(form, order = null) {
     return cmr(order, { ...fields, supplementary_charges: [fields.supplementary_charges, ...lines].filter(Boolean).join('\n') }, ...args);
   };
 
-  // Margin is based on the payable carrier amount, without changing carrier_price.
-  const margin = order => Number(order.customer_price || 0) - (calculateCarrierPricing(order.carrier_price, order.carrier_diesel_percent).total || 0);
-  const originalStats = stats;
-  stats = function(...args) { originalStats(...args); $('sMargin').textContent = nok(orders.filter(order => order.status !== 'cancelled').reduce((sum, order) => sum + margin(order), 0)); };
-  const originalRender = render;
-  render = function(...args) {
-    originalRender(...args);
-    const list = filtered();
-    [...$('rows').querySelectorAll('tr')].forEach((row, index) => { if (list[index] && row.cells[7]) row.cells[7].textContent = nok(margin(list[index])); });
-    [...$('mobileOrders').querySelectorAll('.orderCard')].forEach((card, index) => {
-      const cell = [...card.children].find(el => el.textContent.startsWith('Margin: '));
-      if (cell && list[index]) cell.textContent = 'Margin: ' + nok(margin(list[index]));
-    });
-  };
-
   const workbook = buildInvoiceWorkbook;
   buildInvoiceWorkbook = function(ExcelJS, list, register, options) {
     const result = workbook(ExcelJS, list, register, options), sheet = result.getWorksheet('Fakturagrunnlag');

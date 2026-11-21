@@ -25,6 +25,7 @@ const records={
  {id:'o5',order_number:604,customer:customer.name,pickup_date:'2026-09-30',created_at:'2026-09-30T10:00:00Z',customer_price:9000,carrier_invoice_received:true,customer_invoice_sent:false}
  ]
 };
+let failingRead = '';
 let failCustomer=false;let mutations=[];
 let importedCalls=[];
 records.capacity_vehicles=[];
@@ -32,6 +33,9 @@ function query(table){
  let action='select',payload,filters=[],sortKey,ascending=true,range=null,single=false;
  const q={select(){return q},order(key,opt={}){sortKey=key;ascending=opt.ascending!==false;return q},range(a,b){range=[a,b];return q},eq(k,v){filters.push([k,v]);return q},single(){single=true;return q},maybeSingle(){single=true;return q},insert(p){action='insert';payload=p;return q},update(p){action='update';payload=p;return q},
  then(resolve,reject){try{
+ if (action==='select' && failingRead===table) return Promise.resolve({
+   data:null,error:{message:'<html>'+('gateway unavailable '.repeat(2000))+'</html>'},status:502
+ }).then(resolve,reject);
  if(action==='insert'){
    
    if(table==='customers'&&failCustomer)return Promise.resolve({data:null,error:{message:'Test lagringsfeil'}}).then(resolve,reject);
@@ -81,6 +85,22 @@ async function submitCustomer(name){d.querySelector('#customerForm [name=name]')
 (async()=>{
  await tick();
  assert(!d.getElementById('app').classList.contains('hidden'));
+ // An idle refresh must preserve the form and replace a failed proxy response with a short status.
+ const draftName=d.getElementById('customer');
+ draftName.value='Påbegynt ordre';
+ for(const table of ['profiles','orders','carriers']){
+   failingRead=table;
+   await run('session(true)');
+   assert(!d.getElementById('app').classList.contains('hidden'));
+   assert.equal(draftName.value,'Påbegynt ordre');
+   const status=d.getElementById('backgroundStatus').textContent;
+   assert(status.length>0 && status.length<120);
+   assert(!d.body.textContent.includes('gateway unavailable'));
+   failingRead='';
+   await run('session(true)');
+   assert.equal(d.getElementById('backgroundStatus').textContent,'');
+ }
+ draftName.value='';
  // Margin cards are first in the overview; month selection is independent of report filters.
  assert(d.querySelector('.hero').firstElementChild.classList.contains('margin-overview'));
  const marginOrders = [
@@ -105,6 +125,12 @@ async function submitCustomer(name){d.querySelector('#customerForm [name=name]')
  assert.equal(d.getElementById('sMonthMargin').textContent,run('nok(9.9)'));
  assert.equal(d.getElementById('marginMissingNote').hidden,false);
  assert.equal(run("marginSummary(window.marginTestOrders,'2027-01').month.amount"),0);
+ run('render()');
+ for(const id of ['rows','mobileOrders']) {
+   const cancelled=d.getElementById(id).querySelectorAll('.order-cancelled');
+   assert.equal(cancelled.length,1);
+   assert.equal(cancelled[0].querySelector('.cancelled-label').textContent,'Kansellert');
+ }
  run('orders=window.originalMarginOrders;refreshMarginOverview()');
  assert(d.getElementById('customer').required);assert(d.getElementById('pickup_name').required);
  assert.equal(d.querySelector('#form [name=weight_kg]').required,false);
@@ -377,6 +403,14 @@ async function verifyCarrierAndPrivacy() {
    const pdf=run(expression);assert(!pdf.includes('99887766'));assert(!pdf.includes('99 88 77 66'));assert(!pdf.includes('88776655'));assert(!pdf.includes('88 77 66 55'));
  }
  assert.equal(run('current.pickup_phone'),'+47 99887766');
+ for(const nameInput of [input,edit]){
+   nameInput.value='Ny uregistrert transportør';
+   nameInput.dispatchEvent(new w.Event('change'));
+   assert.equal(nameInput.form.elements.carrier_email.value,'');
+   nameInput.form.elements.carrier_email.value='ny@example.invalid';
+   nameInput.dispatchEvent(new w.Event('change'));
+   assert.equal(nameInput.form.elements.carrier_email.value,'ny@example.invalid');
+ }
  console.log('PASS: carrier pre-save/edit/duplicate and create/edit autofill; internal pickup numbers removed from email, PDFs and CMR including copied instructions; delivery/driver phones and stored internal values retained.');
 }
 
