@@ -29,7 +29,7 @@ export function draftPayload(order, selection, environment) {
   const p = pricing(order);
   if (p.diesel && (!Number.isSafeInteger(selection.dieselProductId) || selection.dieselProductId <= 0)) throw new IntegrationError('Velg produkt for dieseltillegget.');
   const date = order.pickup_date || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Oslo' }).format(new Date(order.pickup_at));
-  const ref = `GNS-${environment}-${order.id}`;
+  const ref = `GNS-${environment === 'production' ? 'prod' : environment}-${order.id}`;
   const route = [order.pickup_name, order.delivery_name].filter(Boolean).join(' → ');
   const lines = [{ ProductId: selection.freightProductId, Quantity: 1, ProductUnitPrice: p.base, Allowance: 0, SortOrder: 1, LineType: 'Normal', Description: `Frakt ${order.reference || order.order_number} · ${date} · ${route}`.slice(0, 250) }];
   if (p.diesel) lines.push({ ProductId: selection.dieselProductId, Quantity: 1, ProductUnitPrice: p.diesel, Allowance: 0, SortOrder: 2, LineType: 'Normal', Description: `Dieseltillegg ${p.percent} % av kr ${p.base.toFixed(2)}` });
@@ -61,6 +61,24 @@ export class PowerOffice {
       if (!this.token) throw new IntegrationError('PowerOffice ga ingen tilgang.', 502);
     }
     const res = await this.fetcher(this.base + path, { method, signal: AbortSignal.timeout(25000), headers: { Authorization: `Bearer ${this.token}`, 'Ocp-Apim-Subscription-Key': this.config.subscriptionKey, 'Content-Type': 'application/json' }, ...(data === undefined ? {} : { body: JSON.stringify(data) }) });
+    if (res.status === 400 && method === 'POST' && path === '/SalesOrders/Complete') {
+      const problem = await res.json().catch(() => null);
+      const errors = field(problem, 'Errors');
+      const messages = errors && typeof errors === 'object' ? Object.values(errors).flat() : [];
+      let detail = field(problem, 'Detail');
+      if (typeof detail === 'string' && detail.trimStart().startsWith('[')) {
+        try {
+          const validators = JSON.parse(detail);
+          if (Array.isArray(validators)) messages.push(...validators.map(item => field(item, 'ErrorMessage')));
+        } catch { /* Use the title if the provider did not return a validator array. */ }
+        detail = '';
+      }
+      const details = [...messages, detail, field(problem, 'Title')]
+        .filter(value => typeof value === 'string' && value.trim() && !/[<>]/.test(value))
+        .map(value => value.replace(/\s+/g, ' ').trim());
+      const reason = [...new Set(details)].join(' ').slice(0, 320);
+      if (reason) throw new IntegrationError('PowerOffice avviste utkastet. ' + reason, 400);
+    }
     if (!res.ok) throw new IntegrationError(`PowerOffice avviste ${method} ${path.split('?')[0]} (HTTP ${res.status}). Kontroller kunde, produkter og API-rettigheter.`, 502);
     return res.status === 204 ? null : res.json();
   }
