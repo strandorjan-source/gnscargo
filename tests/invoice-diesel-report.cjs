@@ -58,10 +58,10 @@ function checkWorkbook(ExcelJS) {
   const sheet = workbook.getWorksheet('Fakturagrunnlag');
   const values = row => [12, 13, 14, 15, 16, 17].map(column => sheet.getRow(row).getCell(column).value);
   assert.deepEqual(values(5), [35000, 40000, 0.09, 3600, 43600, 'Til fakturering']);
-  assert.deepEqual(values(6), [40000, 46500, 0.0875, 4068.75, 50568.75, 'Venter transportørfaktura']);
+  assert.deepEqual(values(6), [40000, 46500, 0.0875, 4068.75, 50568.75, 'Til fakturering · transportørfaktura ikke mottatt']);
   assert.deepEqual(values(7), [30000, 40000, 0, 0, 40000, 'Fakturert']);
-  assert.deepEqual(values(8), [null, null, 0, 0, null, 'Venter transportørfaktura']);
-  assert.deepEqual(values(9), [0, 0, 0, 0, 0, 'Venter transportørfaktura']);
+  assert.deepEqual(values(8), [null, null, 0, 0, null, 'Til fakturering · transportørfaktura ikke mottatt']);
+  assert.deepEqual(values(9), [0, 0, 0, 0, 0, 'Til fakturering · transportørfaktura ikke mottatt']);
   assert.equal(sheet.getCell('O10').value, 0.01);
   assert.equal(sheet.getCell('P10').value, 0.06);
   assert.equal(sheet.getCell('N5').numFmt, '0.00%');

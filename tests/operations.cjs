@@ -10,7 +10,7 @@ const db={profiles:[{id:'staff-a',full_name:'Befrakter A',email:'staff@example.i
  {id:'order-c',order_number:803,revision:1,status:'delivered',customer:'Customer C',pickup_date:today,customer_invoice_sent:false},
  {id:'order-d',order_number:804,revision:1,status:'cancelled',customer:'Cancelled',pickup_date:today}
 ]};
-const calls=[],files=new Map();let failNotes=false;
+const calls=[],files=new Map(),previousStatus=new Map();let failNotes=false;
 function query(table){let action='read',payload,filters=[],single=false,range=null;const q={select(){return q},eq(k,v){filters.push([k,v]);return q},order(){return q},range(a,b){range=[a,b];return q},single(){single=true;return q},maybeSingle(){single=true;return q},insert(p){action='insert';payload=p;return q},update(p){action='update';payload=p;return q},then(resolve,reject){try{
  let rows=db[table]||[];
  if(action==='insert'){
@@ -31,7 +31,15 @@ async function rpc(name,args){calls.push({rpc:name,args});
  if(name==='cargo_order_snapshot'){const row=db.orders.find(o=>o.id===args.p_id);return{data:row?{...row,stops:db.order_stops.filter(st=>st.order_id===row.id).map(st=>({...st}))}:null};}
  if(name==='save_cargo_order'){
   const row=db.orders.find(o=>o.id===args.p_id);if(!row||row.revision!==args.p_expected_revision)return{error:{code:'40001',message:'Ordren er endret av en annen bruker.'}};
+  if(args.p_order.status==='cancelled')previousStatus.set(row.id,row.status);
   Object.assign(row,args.p_order,{revision:row.revision+1});return{data:{...row}};
+ }
+ if(name==='restore_cargo_order'){
+  const row=db.orders.find(o=>o.id===args.p_id);
+  if(row.revision!==args.p_expected_revision)return{error:{code:'40001',message:'Ordren er endret.'}};
+  if(row.status!=='cancelled')throw new Error('Unexpected restore');
+  Object.assign(row,{status:previousStatus.get(row.id),cancellation_reason:null,revision:row.revision+1});
+  return{data:row.status};
  }
  throw new Error('Unexpected RPC '+name);
 }
@@ -92,6 +100,19 @@ async function submit(form){form.dispatchEvent(new w.Event('submit',{cancelable:
  await run("openOrderFollowup('order-a')");assert(d.getElementById('opsDocuments').textContent.includes('proof.pdf'));
  // Cancellation uses reason + revision and never calls DELETE.
  d.querySelector('#opsCancelForm textarea').value='Customer cancelled';await submit(d.getElementById('opsCancelForm'));assert.equal(db.orders[0].status,'cancelled');assert.equal(db.orders[0].cancellation_reason,'Customer cancelled');assert.equal(db.order_notes.length,1);assert.equal(db.order_documents.length,1);assert(!calls.some(c=>c.action==='delete'));
+ const restoreButton=d.getElementById('opsRestore');
+ assert(restoreButton);
+ assert(d.querySelector('#rows .order-cancelled button[onclick*="restoreListedOrder"]'));
+ assert(d.querySelector('#mobileOrders .order-cancelled button[onclick*="restoreListedOrder"]'));
+ w.confirm=()=>false;await restoreButton.onclick();
+ assert(!calls.some(c=>c.rpc==='restore_cargo_order'));
+ w.confirm=()=>true;db.orders[0].revision++;await restoreButton.onclick();
+ assert.equal(db.orders[0].status,'cancelled');assert.match(d.getElementById('opsMessage').textContent,/endret/);
+ await run("openOrderFollowup('order-a')");await d.getElementById('opsRestore').onclick();
+ assert.equal(db.orders[0].status,'picked_up');assert.equal(db.orders[0].cancellation_reason,null);
+ assert.equal(db.orders[0].order_number,801);assert.equal(db.orders[0].customer_price,43600);
+ assert.equal(db.order_documents[0].status,'ready');assert.equal(db.order_notes[0].body,'PRIVATE INTERNAL TEXT');
+ assert(!d.querySelector('#rows .order-cancelled button[onclick*="order-a"]'));
  // Sign-out removes internal content and invalidates pending modal results.
  run("me=null;$('app').classList.add('hidden')");await tick();assert(d.getElementById('opsModal').classList.contains('hidden'));assert.equal(d.getElementById('opsContent').textContent,'');assert.equal(d.getElementById('opsList').textContent,'');
  assert.deepEqual(errors,[]);console.log('PASS: dashboard dates/mine/exceptions, dispatcher reassignment, stale-write rejection, internal notes/retry, incident resolution, carrier invitation, document upload/finalize/content checks, cancellation/history retention, logout cleanup.');

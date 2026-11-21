@@ -179,12 +179,24 @@ async function submitCustomer(name){d.querySelector('#customerForm [name=name]')
  assert.equal(dateOrders.map(o=>o.order_number).join(','),'4,3,2,1,0');
  // Invoice states, customer filter and missing vs. zero price.
  assert.equal(run("reportOrders(orders,{month:'2026-10',scope:'unbilled',customer:''}).length"),3);
- assert.equal(run("reportOrders(orders,{month:'2026-10',scope:'billing',customer:''}).length"),2);
+ assert.equal(run("reportOrders(orders,{month:'2026-10',scope:'billing',customer:''}).length"),3);
+ assert.equal(run("reportOrders(orders,{month:'2026-10',scope:'received',customer:''}).length"),2);
  assert.equal(run("reportOrders(orders,{month:'2026-10',scope:'done',customer:''}).length"),1);
  assert.equal(run("reportOrders(orders,{month:'2026-10',scope:'unbilled',customer:normalizeCustomer('Historisk Kunde AS')}).length"),1);
  assert.equal(run("hasPrice({customer_price:0})"),true);assert.equal(run("hasPrice({customer_price:null})"),false);
+ // A customer can be billed before the carrier invoice. The two queues stay independent.
+ d.querySelector('.tab[data-view=billing]').click();
+ assert(d.querySelector('#rows button[onclick*="openBillingDraft"][onclick*="o2"]'));
+ assert(d.querySelector('#mobileOrders button[onclick*="toggleCustomer"][onclick*="o2"]'));
+ await w.toggleCustomer('o2');
+ assert.equal(records.orders[1].carrier_invoice_received,false);
+ assert(!d.querySelector('#rows button[onclick*="openBillingDraft"][onclick*="o2"]'));
+ d.querySelector('.tab[data-view=waiting]').click();
+ assert(d.querySelector('#mobileOrders button[onclick*="toggleCarrier"][onclick*="o2"]'));
+ await w.toggleCustomer('o2');
+ d.querySelector('.tab[data-view=all]').click();
  // Full download flow generates an XLSX without changing invoice state.
- d.getElementById('month').value='2026-10';d.getElementById('reportScope').value='unbilled';
+ d.getElementById('month').value='2026-10';d.getElementById('reportScope').value='billing';
  const before=JSON.stringify(records.orders);const beforeMutations=mutations.length;
  await run('exportInvoiceExcel()');
  assert(downloadedBlob);assert.equal(JSON.stringify(records.orders),before);assert.equal(mutations.length,beforeMutations);

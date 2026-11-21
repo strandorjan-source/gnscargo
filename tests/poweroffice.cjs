@@ -7,7 +7,7 @@ const root = path.join(__dirname, '..');
 (async () => {
   const { pricing, draftPayload, invoiceState } = await import('../supabase/functions/poweroffice/core.mjs');
   const { handleRequest } = await import('../supabase/functions/poweroffice/handler.mjs');
-  const order = { id: '00000000-0000-4000-8000-000000000123', order_number: 800123, revision: 1, reference: 'GNS-TEST', customer: 'Testkunde', customer_reference: 'KUNDEREF', pickup_date: '2026-10-12', pickup_name: 'TEST Bodø', delivery_name: 'TEST Oslo', customer_base_price: 40000, customer_diesel_percent: 9, customer_diesel_amount: 3600, customer_price: 43600, carrier_price: 35000, pickup_phone: 'INTERNAL PHONE', instructions: 'PRIVATE' };
+  const order = { id: '00000000-0000-4000-8000-000000000123', order_number: 800123, revision: 1, reference: 'GNS-TEST', carrier_invoice_received: false, customer: 'Testkunde', customer_reference: 'KUNDEREF', pickup_date: '2026-10-12', pickup_name: 'TEST Bodø', delivery_name: 'TEST Oslo', customer_base_price: 40000, customer_diesel_percent: 9, customer_diesel_amount: 3600, customer_price: 43600, carrier_price: 35000, pickup_phone: 'INTERNAL PHONE', instructions: 'PRIVATE' };
   const selection = { customerId: 10, freightProductId: 20, dieselProductId: 21 };
   const payload = draftPayload(order, selection, 'demo');
   assert.equal(payload.SalesOrderStatus, 'Draft'); assert.equal(payload.SalesOrderLines.length, 2);
@@ -79,12 +79,13 @@ const root = path.join(__dirname, '..');
   draft=originalDraft;await sync();
 
   // Real DOM event handlers with the same module shipped to Cargo.
-  const dom = new JSDOM('<section><input id="month"><select id="reportScope"></select><select id="reportCustomer"></select><div id="reportSummary"></div></section>', { runScripts: 'outside-only' });
+  const dom = new JSDOM('<section><input id="month"><select id="reportScope"><option value="billing">Til fakturering</option></select><select id="reportCustomer"></select><div id="reportSummary"></div></section>', { runScripts: 'outside-only' });
   const w = dom.window; let calls = [];
+  w.HTMLElement.prototype.scrollIntoView=function(){};
   w.testOrders=[{...order},{...order,id:'zz-older',order_number:800099}];
   const prior=Array.from({length:205},(_,i)=>({...exported,order_id:'prior-'+String(i).padStart(3,'0')}));
   prior.push({...exported,order_id:'zz-older'});
-  const prelude = `const orders=window.testOrders, customers=[]; const $=id=>document.getElementById(id); const esc=v=>String(v??'').replaceAll('<','&lt;'); const nok=v=>String(v); const fmt=v=>v||'—'; const normalizeCustomer=v=>String(v||'').toLowerCase(); const reportOrders=()=>orders; const reportLoadingDate=o=>o.pickup_date; const customerReportPricing=o=>({base:o.customer_base_price,diesel:o.customer_diesel_amount}); function note(el,t){el.textContent=t;}`;
+  const prelude = `const orders=window.testOrders, customers=[]; const $=id=>document.getElementById(id); const esc=v=>String(v??'').replaceAll('<','&lt;'); const nok=v=>String(v); const fmt=v=>v||'—'; const normalizeCustomer=v=>String(v||'').toLowerCase(); const reportOrders=()=>orders; const readyForCustomerInvoice=o=>!o.customer_invoice_sent && o.status!=="cancelled"; function updateReportSummary(){} const reportLoadingDate=o=>o.pickup_date; const customerReportPricing=o=>({base:o.customer_base_price,diesel:o.customer_diesel_amount}); function note(el,t){el.textContent=t;}`;
   w.s = { functions: { invoke: async (_, { body }) => {
     calls.push(body);
     return { data: body.action === 'options' ? { environment: 'demo', customers: [{ id: 10, number: 1, name: 'Testkunde' }, {id:11, number:2, name:'Ny kunde'}], products: [{ id: 20, code: 'F', name: 'Frakt' }, { id: 21, code: 'D', name: 'Diesel' }] } : { export: exported } };
@@ -96,7 +97,10 @@ const root = path.join(__dirname, '..');
     return q;
   } };
   w.eval(prelude + fs.readFileSync(path.join(root, 'poweroffice.js'), 'utf8'));
-  await w.document.getElementById('poConnect').onclick();
+  await w.openBillingDraft(order.id);
+  assert.equal(w.document.getElementById('poOrder').value, order.id);
+  assert.equal(w.document.getElementById('reportScope').value, 'billing');
+  assert.deepEqual(calls.map(c=>c.action), ['options']);
   assert.match(w.document.getElementById('poEnvironment').textContent, /TESTMILJØ/);
   w.document.getElementById('poOrder').value = order.id; w.document.getElementById('poOrder').onchange();
   assert.equal(w.document.getElementById('poCustomer').value, '10');

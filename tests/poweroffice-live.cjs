@@ -29,6 +29,8 @@ async function input() {
   const secretDenied = await fetch(url + '/rest/v1/rpc/poweroffice_config', { method: 'POST', headers: { apikey: key, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: '{}' });
   assert.ok([401, 403, 404].includes(secretDenied.status), 'User must never read PowerOffice secrets');
   console.log('PASS: anonymous function calls and authenticated secret reads blocked');
+  const call = body => request('/functions/v1/poweroffice', body, token);
+  assert.equal((await call({action:'options'})).environment,'demo','Cargo must point to demo before creating fixtures');
   const ref = 'GNS-INTEGRATION-TEST-20261012';
   let customer = (await po.list('/Customers?externalImportReference=' + ref))[0];
   if (!customer) customer = await po.request('/Customers', 'POST', { Name: 'GNS TEST – integrasjon (ikke fakturer)', ExternalImportReference: ref, IsPerson: false, InvoiceDeliveryType: 'Print', UseInvoiceFee: false, SendPaymentReminders: false, CurrencyCode: 'NOK' });
@@ -44,7 +46,7 @@ async function input() {
     p_stops: [{ stop_type: 'pickup', stop_sequence: 1, name: 'TEST Bodø', planned_date: '2026-10-12' }]
   }, token);
   console.log('TEST_ORDER', JSON.stringify({ id: order.id, reference: order.reference, order_number: order.order_number }));
-  const call = body => request('/functions/v1/poweroffice', body, token);
+  assert.equal(order.carrier_invoice_received,false);
   const options = await call({ action: 'options' });
   assert.equal(options.environment, 'demo');
   assert.ok(options.customers.some(c => c.id === field(customer, 'Id')));
@@ -53,7 +55,18 @@ async function input() {
   const w = dom.window; let lastExport;
   const prelude = `const orders=${JSON.stringify([order])},customers=[];const $=id=>document.getElementById(id);const esc=v=>String(v??'').replaceAll('<','&lt;');const nok=v=>String(v);const fmt=v=>v||'—';const normalizeCustomer=v=>String(v||'').toLowerCase();const reportOrders=()=>orders;const reportLoadingDate=o=>o.pickup_date;const customerReportPricing=o=>({base:o.customer_base_price,diesel:o.customer_diesel_amount});function note(el,t){el.textContent=t;}`;
   w.s = { functions: { invoke: async (_, { body }) => { const data = await call(body); if (data.export) lastExport = data.export; return { data }; } }, from: () => {
-    const q = { select: () => q, eq: () => q, order: () => q, limit: async () => ({ data: await request('/rest/v1/poweroffice_exports?order_id=eq.' + order.id, undefined, token, 'GET') }) }; return q;
+    let after = null, pageSize;
+    const q = {
+      select: () => q, eq: () => q, order: () => q,
+      gt: (_, value) => { after = value; return q; },
+      limit: n => { pageSize = n; return q; },
+      then(resolve, reject) {
+        const cursor = after ? '&order_id=gt.' + encodeURIComponent(after) : '';
+        return request('/rest/v1/poweroffice_exports?environment=eq.demo&order_id=eq.' + order.id + cursor + '&order=order_id&limit=' + pageSize, undefined, token, 'GET')
+          .then(data => resolve({data}), reject);
+      }
+    };
+    return q;
   } };
   w.eval(prelude + fs.readFileSync(require('node:path').join(__dirname, '../poweroffice.js'), 'utf8'));
   await w.document.getElementById('poConnect').onclick();

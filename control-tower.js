@@ -319,9 +319,8 @@ function reportOrders(source = orders, options = reportOptions()) {
   return source.filter(order => {
     if (options.month && !reportLoadingDate(order).startsWith(options.month)) return false;
     if (options.customer && normalizeCustomer(order.customer) !== options.customer) return false;
-    if (['unbilled', 'billing'].includes(options.scope) && order.status === 'cancelled') return false;
-    if (options.scope === 'unbilled') return !order.customer_invoice_sent;
-    if (options.scope === 'billing') return order.carrier_invoice_received && !order.customer_invoice_sent;
+    if (options.scope === 'unbilled' || options.scope === 'billing') return readyForCustomerInvoice(order);
+    if (options.scope === 'received') return readyForCustomerInvoice(order) && !!order.carrier_invoice_received;
     if (options.scope === 'done') return !!order.customer_invoice_sent;
     return true;
   }).sort((a, b) => (reportLoadingDate(a) || '9999-12-31').localeCompare(reportLoadingDate(b) || '9999-12-31') || Number(a.order_number) - Number(b.order_number));
@@ -404,7 +403,7 @@ function buildInvoiceWorkbook(ExcelJS, list, register, options) {
   const sheet = workbook.addWorksheet('Fakturagrunnlag');
   const headings = ['GNS-referanse', 'Kunde', 'Kundereferanse', 'Lastedato', 'Leveringsdato', 'Hentested', 'Leveringssted', 'Gods', 'Paller', 'Nettovekt (kg)', 'Transportør', 'Inngående faktura fra transportør – avtalt frakt (NOK)', 'Fraktsum til kunde uten diesel (NOK)', 'Dieseltillegg (%)', 'Dieseltillegg (NOK)', 'Til fakturering kunde – total inkl. diesel (NOK)', 'Status kundefakturering'];
   const pricing = list.map(customerReportPricing);
-  const scopeLabels = { unbilled: 'Ikke fakturert', billing: 'Til fakturering – transportørfaktura mottatt', all: 'Alle ordre', done: 'Ferdig fakturert' };
+  const scopeLabels = { unbilled: 'Ikke fakturert', billing: 'Til fakturering', received: 'Til fakturering – transportørfaktura mottatt', all: 'Alle ordre', done: 'Ferdig fakturert' };
   const missing = list.filter(order => !hasPrice(order)).length;
   const hasCarrierPrice = order => reportNumber(order.carrier_price) !== null;
   const missingCarrier = list.filter(order => !hasCarrierPrice(order)).length;
@@ -430,7 +429,7 @@ function buildInvoiceWorkbook(ExcelJS, list, register, options) {
       order.pickup_name || '', order.delivery_name || '', order.goods || '', order.pallets == null ? null : Number(order.pallets),
       order.weight_kg == null ? null : Number(order.weight_kg), order.carrier_name || '',
       reportNumber(order.carrier_price), price.base, price.percent / 100, price.diesel, price.total,
-      order.status === 'cancelled' ? 'Kansellert – ikke fakturer' : order.customer_invoice_sent ? 'Fakturert' : order.carrier_invoice_received ? 'Til fakturering' : 'Venter transportørfaktura'
+      order.status === 'cancelled' ? 'Kansellert – ikke fakturer' : order.customer_invoice_sent ? 'Fakturert' : order.carrier_invoice_received ? 'Til fakturering' : 'Til fakturering · transportørfaktura ikke mottatt'
     ]);
     row.getCell(4).numFmt = row.getCell(5).numFmt = 'dd.mm.yyyy';
     row.getCell(9).numFmt = '0';

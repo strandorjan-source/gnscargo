@@ -61,6 +61,26 @@ function installPowerOffice() {
     for (const id of ['poOrder','poCustomer','poFreight','poDiesel']) $(id).replaceChildren(new Option('Velg', ''));
   });
 }
+async function openBillingDraft(id) {
+  const order = orders.find(row => row.id === id);
+  if (!order || !readyForCustomerInvoice(order)) return;
+  const panel = $('powerOfficePanel');
+  panel.open = true;
+  panel.scrollIntoView({block:'start'});
+  if (powerOffice.busy) return;
+  $('reportScope').value = 'billing';
+  if ($('month').value && !reportLoadingDate(order).startsWith($('month').value)) $('month').value = reportLoadingDate(order).slice(0,7);
+  if ($('reportCustomer').value && $('reportCustomer').value !== normalizeCustomer(order.customer)) $('reportCustomer').value = '';
+  updateReportSummary();
+  if (!powerOffice.options || !powerOffice.exports) {
+    await $('poConnect').onclick();
+    if (!powerOffice.options || !powerOffice.exports) return;
+  }
+  refreshPowerOffice();
+  $('poOrder').value = id;
+  $('poOrder').onchange();
+  $('poCustomer').focus();
+}
 async function poCall(body) {
   const { data, error } = await s.functions.invoke('poweroffice', { body });
   if (error) {
