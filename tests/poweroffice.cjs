@@ -7,6 +7,7 @@ const root = path.join(__dirname, '..');
 (async () => {
   const { pricing, draftPayload, invoiceState, PowerOffice } = await import('../supabase/functions/poweroffice/core.mjs');
   const { handleRequest } = await import('../supabase/functions/poweroffice/handler.mjs');
+  const { pollSentInvoices } = await import('../supabase/functions/poweroffice/poll.mjs');
   const order = { id: '00000000-0000-4000-8000-000000000123', order_number: 800123, revision: 1, reference: 'GNS-TEST', carrier_invoice_received: false, customer: 'Testkunde', customer_reference: 'KUNDEREF', pickup_date: '2026-10-12', pickup_name: 'TEST Bodø', delivery_name: 'TEST Oslo', customer_base_price: 40000, customer_diesel_percent: 9, customer_diesel_amount: 3600, customer_price: 43600, carrier_price: 35000, pickup_phone: 'INTERNAL PHONE', instructions: 'PRIVATE' };
   const selection = { customerId: 10, freightProductId: 20, dieselProductId: 21 };
   const payload = draftPayload(order, selection, 'demo');
@@ -33,6 +34,27 @@ const root = path.join(__dirname, '..');
   assert.equal(pricing({ customer_base_price:32008.50, customer_diesel_percent:7, customer_diesel_amount:2240.60, customer_price:34249.10 }).total,34249.10);
   for (const [balance, total, state] of [[null, 100, 'invoiced'], [100, 100, 'invoiced'], [30, 100, 'partially_paid'], [0, 100, 'paid'], [-5, 100, 'overpaid']]) assert.equal(invoiceState({ Balance: balance, TotalPostedAmount: total, InvoiceNo: 1 }).state, state);
   assert.equal(invoiceState({ IsReversed: true, Balance: 0, InvoiceNo: 1 }).state, 'reversed');
+  const pending = {order_id:order.id,environment:'production',external_reference:productionRef,sales_order_id:'po-id',payload:{CustomerId:10},updated_at:'2026-11-21T11:00:00Z'};
+  const sentInvoice = {Id:'po-id',InvoiceNo:730,SentDateTimeOffset:'2026-11-21T11:15:00Z',CustomerId:10,VoucherType:'OutgoingInvoice',Balance:100,TotalPostedAmount:100};
+  assert.equal(invoiceState(sentInvoice,pending).provider_sent_at,sentInvoice.SentDateTimeOffset);
+  for (const patch of [{Id:'wrong'},{ExternalImportReference:'another-order'},{SentDateTimeOffset:null},{SentDateTimeOffset:'invalid'},{CustomerId:12},{InvoiceNo:null},{VoucherType:'OutgoingCreditNote'},{IsReversed:true}]) {
+    assert.equal(invoiceState({...sentInvoice,...patch},pending).provider_sent_at,undefined);
+  }
+  assert.equal(invoiceState(sentInvoice,{...pending,environment:'demo'}).provider_sent_at,undefined);
+  assert.equal(invoiceState({...sentInvoice,ExternalImportReference:productionRef},{...pending,sales_order_id:null}).provider_sent_at,sentInvoice.SentDateTimeOffset);
+  const writes=[];
+  const pollDb=async (path,method,body)=>{
+    if (!method) {assert.match(path,/orders.customer_invoice_sent=eq.false/);return [pending];}
+    writes.push({path,body});return [pending];
+  };
+  assert.deepEqual(await pollSentInvoices({list:async ()=>[sentInvoice]},pollDb),{checked:1,confirmed:1});
+  assert.match(writes[0].path,/updated_at=eq\./);assert.equal(writes[0].body.invoice_number,'730');
+  assert.deepEqual(Object.keys(writes[1].body),['invoice_checked_at']);
+  writes.length=0;
+  await assert.rejects(pollSentInvoices({list:async ()=>{throw new Error('offline');}},pollDb),/offline/);
+  assert.equal(writes.length,0,'unavailable provider is retried');
+  assert.deepEqual(await pollSentInvoices({list:async ()=>[]},pollDb),{checked:1,confirmed:0});
+  assert.deepEqual(Object.keys(writes[0].body),['invoice_checked_at']);
   let exported, draft, linkedInvoice, numberedDraft, rejectSyncWrite = false, count = 0, role = 'dispatcher', validUser = true, simulateLostResponse = false;
   const config = { environment: 'demo', applicationKey: 'dummy', clientKey: 'dummy', subscriptionKey: 'dummy' };
   const ok = (data, status = 200) => new Response(JSON.stringify(data), { status });
@@ -78,6 +100,14 @@ const root = path.join(__dirname, '..');
     const r = await handleRequest(new Request('https://cargo.invalid', { method: 'POST', headers: { Authorization: auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), { url: 'https://db.invalid', anonKey: 'anon', serviceKey: 'service' }, fakeFetch);
     return { status: r.status, data: await r.json() };
   };
+  const pollRequest = (token,action) => handleRequest(new Request('https://cargo.invalid',{method:'POST',headers:{'X-Cargo-Poll-Token':token},body:JSON.stringify({action})}),{url:'https://db.invalid',serviceKey:'service'},fakeFetch);
+  config.pollToken='a'.repeat(72);
+  assert.equal((await pollRequest('b'.repeat(72),'pollSent')).status,403);
+  assert.equal((await pollRequest(config.pollToken,'pollSent')).status,403,'cron cannot use demo');
+  config.environment='production';
+  assert.equal((await pollRequest(config.pollToken,'create')).status,400,'scheduler cannot create drafts');
+  assert.equal((await pollRequest(config.pollToken,'pollSent')).status,200);
+  config.environment='demo';
   const create = { action: 'create', orderId: order.id, expectedRevision: 1, ...selection, customer_price: 1 };
   assert.equal((await invoke(create, '')).status, 401);
   validUser = false; assert.equal((await invoke(create)).status, 401); validUser = true;

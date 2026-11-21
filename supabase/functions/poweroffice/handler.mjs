@@ -1,4 +1,5 @@
 import { IntegrationError, PowerOffice, draftPayload, field, invoiceState, money, withCustomerReference } from './core.mjs';
+import { pollSentInvoices } from './poll.mjs';
 
 const draftMismatch = 'Utkastet er opprettet, men sum i PowerOffice avviker. Kontroller utkastet før fakturering.';
 function draftState(draft, existing) {
@@ -20,6 +21,19 @@ export async function handleRequest(request, env, fetcher = fetch) {
   if (request.method !== 'POST') return reply({ error: 'Bruk POST.' }, 405);
   let claimed = null, db;
   try {
+    db = async (path, method = 'GET', body) => {
+      const r = await fetcher(env.url + '/rest/v1/' + path, { method, headers: { apikey: env.serviceKey, Authorization: `Bearer ${env.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(15000) });
+      if (!r.ok) throw new IntegrationError('Kunne ikke lagre PowerOffice-status i Cargo.', 503);
+      const text = await r.text(); return text ? JSON.parse(text) : null;
+    };
+    const pollToken = request.headers.get('X-Cargo-Poll-Token');
+    if (pollToken !== null) {
+      if (origin || !/^[0-9a-f-]{72}$/.test(pollToken)) throw new IntegrationError('Ingen tilgang.', 403);
+      const config = await db('rpc/poweroffice_config', 'POST', {});
+      if (pollToken !== config?.pollToken || config.environment !== 'production') throw new IntegrationError('Ingen tilgang.', 403);
+      if ((await request.json()).action !== 'pollSent') throw new IntegrationError('Ukjent handling.');
+      return reply(await pollSentInvoices(new PowerOffice(config, fetcher), db));
+    }
     const auth = request.headers.get('Authorization');
     if (!auth?.startsWith('Bearer ')) throw new IntegrationError('Logg inn i Cargo.', 401);
     const userResult = await fetcher(env.url + '/auth/v1/user', { headers: { apikey: env.anonKey, Authorization: auth }, signal: AbortSignal.timeout(10000) });
@@ -31,11 +45,6 @@ export async function handleRequest(request, env, fetcher = fetch) {
     };
     const role = await userDb('rpc/current_user_role', 'POST', {});
     if (!['admin', 'dispatcher'].includes(role)) throw new IntegrationError('Kun godkjente Cargo-medarbeidere kan bruke PowerOffice.', 403);
-    db = async (path, method = 'GET', body) => {
-      const r = await fetcher(env.url + '/rest/v1/' + path, { method, headers: { apikey: env.serviceKey, Authorization: `Bearer ${env.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(15000) });
-      if (!r.ok) throw new IntegrationError('Kunne ikke lagre PowerOffice-status i Cargo.', 503);
-      const text = await r.text(); return text ? JSON.parse(text) : null;
-    };
     const body = await request.json();
     if (!['options', 'create', 'sync'].includes(body.action)) throw new IntegrationError('Ukjent handling.');
     const config = await db('rpc/poweroffice_config', 'POST', {});
@@ -66,7 +75,7 @@ export async function handleRequest(request, env, fetcher = fetch) {
       if (!existing) throw new IntegrationError('Ordren er ikke overført.');
       if (existing.state === 'creating' && Date.now() - Date.parse(existing.updated_at) < 120000) throw new IntegrationError('Overføringen pågår. Prøv igjen om litt.', 409);
       const found = await po.findExport(existing);
-      const values = found?.invoice ? invoiceState(found.invoice) : found?.draft ? draftState(found.draft, existing) : { state: 'missing', error_message: null };
+      const values = found?.invoice ? invoiceState(found.invoice, existing) : found?.draft ? draftState(found.draft, existing) : { state: 'missing', error_message: null };
       const condition = '&state=eq.' + existing.state + '&updated_at=eq.' + encodeURIComponent(existing.updated_at);
       return reply({ export: await save({ error_message: null, ...values, last_synced_at: new Date().toISOString() }, condition) });
     }
@@ -87,7 +96,7 @@ export async function handleRequest(request, env, fetcher = fetch) {
     existing = claim.row;
     const found = await po.findExport(existing);
     let values;
-    if (found?.invoice) values = invoiceState(found.invoice);
+    if (found?.invoice) values = invoiceState(found.invoice, existing);
     else {
       if (!found?.draft && existing.sales_order_id) {
         if (!confirmedMissing) throw new IntegrationError('Hent status fra PowerOffice før du oppretter et nytt utkast.', 409);

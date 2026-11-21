@@ -18,6 +18,8 @@ The status button queries outgoing invoices first, then drafts. Invoice number, 
 
 ## Verification
 
+The production database runs `cargo-poweroffice-sent` every two minutes, even when Cargo is closed. It checks pending exports in batches of 30. Both the background check and a manual status refresh use the send timestamp on a matching PowerOffice outgoing invoice. Cargo records the invoice number and send time, marks the customer invoice as sent and retains the existing carrier-invoice status. A conflicting manual invoice number is flagged for review. Inspect `cron.job_run_details` for failures and `poweroffice_exports.invoice_checked_at` for the last background lookup.
+
 `node tests/poweroffice.cjs` checks pricing, legacy/zero prices, rounding, privacy, draft state, role restrictions, stale revisions, retry after an accepted-but-lost provider response, invoice/payment-state mapping and DOM actions. It runs in `node scripts/release-check.cjs` together with the existing Cargo regression checks.
 
 `node --use-env-proxy tests/poweroffice-live.cjs` runs only when explicitly invoked and receives test credentials through hidden stdin. It requires an ephemeral authenticated Cargo test user and PowerOffice **demo** keys. It creates clearly marked demo customer/products, a temporary Cargo test order through the actual order RPC, and invokes the deployed Edge Function through Cargo's actual UI handlers in JSDOM. It reads the resulting PowerOffice draft, checks line amounts, repeats the request and verifies one draft plus Cargo status. It never sends the draft. Remove the temporary Cargo records/account after testing; retain the marked PowerOffice demo draft as evidence if desired. Do not describe this as a real-browser login test or a live payment test.

@@ -22,7 +22,7 @@ function installPowerOffice() {
     powerOffice.exports = null;
     powerOffice.options = await poCall({ action: 'options' });
     const options = powerOffice.options;
-    $('poEnvironment').textContent = options.environment === 'demo' ? 'TESTMILJØ – dette lager testutkast i PowerOffice-demo. Ingen ekte fakturaer opprettes.' : 'PowerOffice – produksjon. Utkast sendes manuelt fra PowerOffice.';
+    $('poEnvironment').textContent = options.environment === 'demo' ? 'TESTMILJØ – dette lager testutkast i PowerOffice-demo. Ingen ekte fakturaer opprettes.' : 'PowerOffice – produksjon. Send fakturaen fra PowerOffice. Cargo kontrollerer sendestatus hvert andre minutt og flytter ordren til «Ferdig fakturert» når sendingen er bekreftet.';
     $('poControls').classList.remove('hidden');
     $('poCustomer').replaceChildren(new Option('Velg kunde', ''));
     delete $('poCustomer').dataset.order;

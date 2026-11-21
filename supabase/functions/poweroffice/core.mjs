@@ -44,11 +44,25 @@ export function draftPayload(order, selection, environment) {
   if (p.diesel) lines.push({ ProductId: selection.dieselProductId, Quantity: 1, ProductUnitPrice: p.diesel, Allowance: 0, SortOrder: 2, LineType: 'Normal', Description: `Dieseltillegg ${p.percent} % av kr ${p.base.toFixed(2)}` });
   return withCustomerReference({ CustomerId: selection.customerId, CurrencyCode: 'NOK', SalesOrderStatus: 'Draft', SalesOrderDate: date, ExternalImportReference: ref, ImportedOrderNo: Number(order.order_number), SalesOrderLines: lines }, customerReference);
 }
-export function invoiceState(invoice) {
+export function confirmedSendTime(invoice, existing) {
+  const id = field(invoice, 'Id'), number = field(invoice, 'InvoiceNo'), sent = field(invoice, 'SentDateTimeOffset');
+  if (existing?.environment !== 'production' || !id || !/^[1-9]\d*$/.test(String(number)) ||
+      field(invoice, 'VoucherType') !== 'OutgoingInvoice' || field(invoice, 'IsReversed') === true ||
+      !sent || !Number.isFinite(Date.parse(sent)) || !existing.payload?.CustomerId ||
+      String(field(invoice, 'CustomerId')) !== String(existing.payload.CustomerId)) return null;
+  const importedNumber = field(invoice, 'ImportedOrderNo');
+  if (importedNumber != null && existing.payload.ImportedOrderNo != null && String(importedNumber) !== String(existing.payload.ImportedOrderNo)) return null;
+  const reference = field(invoice, 'ExternalImportReference');
+  if (reference) return reference === existing.external_reference ? sent : null;
+  return id === existing.sales_order_id || id === existing.invoice_id ? sent : null;
+}
+export function invoiceState(invoice, existing) {
   const rawBalance = field(invoice, 'Balance'), rawTotal = field(invoice, 'TotalPostedAmount');
   const balance = rawBalance == null ? null : money(rawBalance);
   const total = rawTotal == null ? null : money(rawTotal);
+  const sent = confirmedSendTime(invoice, existing);
   return {
+    ...(sent ? { provider_sent_at: sent } : {}),
     state: field(invoice, 'IsReversed') ? 'reversed' : balance === null ? 'invoiced' : balance < 0 ? 'overpaid' : balance === 0 ? 'paid' : total !== null && total > balance ? 'partially_paid' : 'invoiced',
     invoice_id: field(invoice, 'Id'), invoice_number: String(field(invoice, 'InvoiceNo')),
     balance, invoice_total: total, invoice_date: field(invoice, 'VoucherDate'), due_date: field(invoice, 'DueDate')
