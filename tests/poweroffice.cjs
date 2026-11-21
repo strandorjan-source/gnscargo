@@ -14,14 +14,15 @@ const root = path.join(__dirname, '..');
   const productionRef = draftPayload(order, selection, 'production').ExternalImportReference;
   assert.equal(productionRef, 'GNS-prod-' + order.id);
   assert(productionRef.length <= 50);
-  assert.equal(payload.SalesOrderStatus, 'Draft'); assert.equal(payload.SalesOrderLines.length, 2);
+  assert.equal(payload.SalesOrderStatus, 'Draft'); assert.equal(payload.SalesOrderLines.length, 3);
   assert.equal(payload.SalesOrderLines[0].ProductUnitPrice, 40000); assert.equal(payload.SalesOrderLines[1].ProductUnitPrice, 3600);
-  assert.equal(payload.CustomerReference, 'KUNDEREF'); assert.equal(payload.SalesOrderDate, '2026-10-12');
+  assert.ok(!Object.hasOwn(payload,'CustomerReference')); assert.equal(payload.SalesOrderDate, '2026-10-12');
+  assert.deepEqual(payload.SalesOrderLines[2], {LineType:'Text',Description:'Kundereferanse: KUNDEREF',SortOrder:3});
   for (const ref of [null, undefined, '', '  \t']) {
     assert.throws(() => draftPayload({ ...order, customer_reference: ref }, selection, 'production'), /kundereferans/i);
   }
   const longRef = 'PO-' + '7'.repeat(101);
-  assert.equal(draftPayload({ ...order, customer_reference: '  ' + longRef + '  ' }, selection, 'production').CustomerReference, longRef);
+  assert.equal(draftPayload({ ...order, customer_reference: '  ' + longRef + '  ' }, selection, 'production').SalesOrderLines.at(-1).Description, 'Kundereferanse: ' + longRef);
   assert.ok(!JSON.stringify(payload).includes('35000')); assert.ok(!JSON.stringify(payload).includes('PRIVATE')); assert.ok(!JSON.stringify(payload).includes('INTERNAL PHONE'));
   assert.throws(() => draftPayload({ ...order, customer_invoice_sent: true }, selection, 'demo'));
   assert.throws(() => draftPayload({ ...order, status: 'cancelled' }, selection, 'demo'));
@@ -32,7 +33,7 @@ const root = path.join(__dirname, '..');
   assert.equal(pricing({ customer_base_price:32008.50, customer_diesel_percent:7, customer_diesel_amount:2240.60, customer_price:34249.10 }).total,34249.10);
   for (const [balance, total, state] of [[null, 100, 'invoiced'], [100, 100, 'invoiced'], [30, 100, 'partially_paid'], [0, 100, 'paid'], [-5, 100, 'overpaid']]) assert.equal(invoiceState({ Balance: balance, TotalPostedAmount: total, InvoiceNo: 1 }).state, state);
   assert.equal(invoiceState({ IsReversed: true, Balance: 0, InvoiceNo: 1 }).state, 'reversed');
-  let exported, draft, count = 0, role = 'dispatcher', validUser = true, simulateLostResponse = false;
+  let exported, draft, linkedInvoice, numberedDraft, rejectSyncWrite = false, count = 0, role = 'dispatcher', validUser = true, simulateLostResponse = false;
   const config = { environment: 'demo', applicationKey: 'dummy', clientKey: 'dummy', subscriptionKey: 'dummy' };
   const ok = (data, status = 200) => new Response(JSON.stringify(data), { status });
   const rejected = new PowerOffice(config, async () => ok({ title: 'Validation failed', errors: { Reference: ['Reference too long.'] } }, 400));
@@ -47,21 +48,30 @@ const root = path.join(__dirname, '..');
     if (p.endsWith('/rpc/current_user_role')) return ok(role);
     if (p.endsWith('/rpc/poweroffice_config')) return ok(config);
     if (p.endsWith('/orders')) return ok([order]);
-    if (p.endsWith('/poweroffice_exports')) { if (init.method === 'PATCH') Object.assign(exported, body); return ok(exported ? [exported] : []); }
+    if (p.endsWith('/poweroffice_exports')) {
+      if (init.method === 'PATCH') {
+        if (rejectSyncWrite && u.searchParams.has('updated_at') && u.searchParams.has('state')) return ok([]);
+        Object.assign(exported, body);
+      }
+      return ok(exported ? [exported] : []);
+    }
     if (p.endsWith('/rpc/poweroffice_claim_export')) {
       if (exported?.state === 'creating') return ok({ claimed: false });
       exported ||= { order_id: order.id, environment: 'demo', state: 'creating', payload: body.p_snapshot, external_reference: body.p_snapshot.ExternalImportReference, source_revision: 1 };
       exported.state = 'creating'; return ok({ claimed: true, row: exported });
     }
     if (p.endsWith('/OAuth/Token')) return ok({ access_token: 'fake-token' });
-    if (p.endsWith('/OutgoingInvoices')) return ok([]);
-    if (p.endsWith('/SalesOrders')) return ok(draft ? [draft] : []);
+    if (p.endsWith('/OutgoingInvoices')) return ok(u.searchParams.has('orderNos') && linkedInvoice ? [linkedInvoice] : []);
+    if (p.endsWith('/SalesOrders')) {
+      const match = u.searchParams.has('salesOrderNos') ? numberedDraft : draft;
+      return ok(match ? [match] : []);
+    }
     if (p.endsWith('/SalesOrders/Complete')) {
-      count++; draft = { Id: 'PO-DRAFT', SalesOrderNo: 123, NetAmount: 43600, ...body };
+      count++; draft = { Id: 'PO-DRAFT-' + count, SalesOrderNo: 122 + count, NetAmount: body.SalesOrderLines.filter(line=>line.LineType==='Normal').reduce((sum,line)=>sum+line.ProductUnitPrice*line.Quantity,0), ...body };
       if (simulateLostResponse) { simulateLostResponse = false; throw new Error('network interrupted after provider accepted'); }
       return ok(draft, 201);
     }
-    if (/\/(Products|Customers)\/\d+$/.test(p)) return ok({ Id: Number(p.split('/').at(-1)) });
+    if (/\/(Products|Customers)\/[1-9]\d*$/.test(p)) return ok({ Id: Number(p.split('/').at(-1)) });
     throw new Error('Unexpected request ' + url);
   };
   const invoke = async (body, auth = 'Bearer TEST') => {
@@ -110,15 +120,52 @@ const root = path.join(__dirname, '..');
   draft = null;
   exported.state = 'uncertain';
   exported.payload.CustomerReference = '';
+  exported.payload.SalesOrderLines = exported.payload.SalesOrderLines.filter(line => line.LineType !== 'Text');
+  exported.sales_order_id = null;
+  exported.sales_order_number = null;
   const initialExternalRef = exported.external_reference;
   assert.equal((await invoke(create)).status, 409);
   assert.equal(count, 1);
   assert.equal((await sync()).state, 'missing');
   assert.equal((await invoke(create)).status, 200);
-  assert.equal(draft.CustomerReference, 'KUNDEREF');
-  assert.equal(exported.payload.CustomerReference, 'KUNDEREF');
+  assert.ok(!Object.hasOwn(draft,'CustomerReference'));
+  assert.equal(exported.payload.SalesOrderLines.at(-1).Description, 'Kundereferanse: KUNDEREF');
   assert.equal(exported.external_reference, initialExternalRef);
   assert.equal(count, 2);
+
+  // An actual deleted draft can be replaced using the current Cargo revision.
+  const originalOrder = {...order};
+  numberedDraft = draft;
+  draft = null;
+  assert.equal((await sync()).state, 'draft', 'a draft with a changed external reference still exists');
+  numberedDraft = null;
+  rejectSyncWrite = true;
+  assert.equal((await invoke({ action:'sync',orderId:order.id })).status, 409);
+  assert.equal(exported.state, 'draft', 'an older lookup cannot overwrite a concurrent transfer');
+  rejectSyncWrite = false;
+  assert.equal((await sync()).state, 'missing');
+  Object.assign(order,{revision:2,customer_reference:'NY-REF',customer_base_price:16000,customer_price:16000,customer_diesel_percent:0,customer_diesel_amount:0});
+  const replacement = {...create,expectedRevision:2,customerId:11,freightProductId:30,dieselProductId:0};
+  simulateLostResponse = true;
+  assert.equal((await invoke(replacement)).status,502);
+  assert.equal((await invoke(replacement)).data.alreadyExists,true);
+  assert.equal(count,3);assert.equal(exported.sales_order_number,125);
+  assert.equal(exported.source_revision,2);assert.ok(!Object.hasOwn(draft,'CustomerReference'));
+  assert.deepEqual(draft.SalesOrderLines[1],{LineType:'Text',Description:'Kundereferanse: NY-REF',SortOrder:2});
+  assert.equal(draft.CustomerId,11);assert.equal(draft.SalesOrderLines.length,2);
+  assert.equal(draft.SalesOrderLines[0].ProductId,30);assert.equal(draft.NetAmount,16000);
+  assert.equal(draft.ExternalImportReference,initialExternalRef);
+  const lastDraft=draft;
+  draft=null;
+  assert.equal((await sync()).state,'missing');
+  linkedInvoice={Id:55,OrderNo:125,CustomerId:11,InvoiceNo:555,TotalPostedAmount:20000,Balance:20000};
+  assert.equal((await invoke(replacement)).data.export.state,'invoiced','invoice found by original order number takes precedence over resend');
+  assert.equal(count,3);
+  linkedInvoice=null;
+  assert.equal((await invoke({action:'sync',orderId:order.id})).status,409);
+  assert.equal(exported.state,'invoiced');
+  draft=lastDraft;Object.assign(order,originalOrder);
+  Object.assign(exported,{state:'draft',invoice_number:null,invoice_id:null});
 
   // Real DOM event handlers with the same module shipped to Cargo.
   const dom = new JSDOM('<section><input id="month"><select id="reportScope"><option value="billing">Til fakturering</option></select><select id="reportCustomer"></select><div id="reportSummary"></div></section>', { runScripts: 'outside-only' });
@@ -147,11 +194,21 @@ const root = path.join(__dirname, '..');
   w.document.getElementById('poOrder').value = order.id; w.document.getElementById('poOrder').onchange();
   assert.equal(w.document.getElementById('poCustomer').value, '10');
   w.document.getElementById('poFreight').value = '20'; w.document.getElementById('poDiesel').value = '21';
-  const chooseOrder=id=>{const select=w.document.getElementById('poOrder');select.value=id;select.onchange();};
-  chooseOrder('zz-older');
+  const chooseOrder=async id=>{const select=w.document.getElementById('poOrder');select.value=id;await select.onchange();};
+  await chooseOrder('zz-older');
+  assert.equal(calls.at(-1).action,'sync');assert.equal(calls.at(-1).orderId,'zz-older');
   assert.equal(w.document.getElementById('poSync').disabled,false);
   assert.equal(w.document.getElementById('poCreate').disabled,true);
-  chooseOrder(order.id);
+  prior.at(-1).state='missing';
+  const syncedRow=exported;
+  exported={...prior.at(-1),payload:{SalesOrderLines:[{ProductId:20},{ProductId:21}]}};
+  await w.openBillingDraft('zz-older');
+  assert.equal(w.document.getElementById('poCreate').textContent,'Opprett nytt utkast');
+  assert.equal(w.document.getElementById('poFreight').value,'20');
+  assert.equal(w.document.getElementById('poCreate').disabled,false);
+  assert.match(w.document.getElementById('poPreview').textContent,/Tidligere utkast 125/);
+  exported=syncedRow;
+  await chooseOrder(order.id);
   const referenceDetails=w.document.getElementById('poReference');
   assert.match(referenceDetails.textContent,/Kundereferanse: KUNDEREF/);
   w.testOrders[0].customer_reference='  ';w.refreshPowerOffice();

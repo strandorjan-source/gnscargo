@@ -81,7 +81,10 @@ async function input() {
   assert.equal(field(remote, 'SalesOrderStatus'), 'Draft');
   assert.equal(field(remote, 'NetAmount'), 43600);
   const lines = field(remote, 'SalesOrderLines');
-  assert.equal(lines.length, 2); assert.equal(field(lines[0], 'ProductUnitPrice'), 40000); assert.equal(field(lines[1], 'ProductUnitPrice'), 3600);
+  assert.equal(lines.length, 3); assert.equal(field(lines[0], 'ProductUnitPrice'), 40000); assert.equal(field(lines[1], 'ProductUnitPrice'), 3600);
+  assert.equal(field(lines[2], 'LineType'), 'Text');
+  assert.equal(field(lines[2], 'Description'), 'Kundereferanse: ' + order.customer_reference);
+  assert.notEqual(field(remote, 'CustomerReference'), order.customer_reference);
   assert.ok(!JSON.stringify(remote).includes('INTERNAL-NOT-EXPORTED'));
   const duplicate = await call({ action: 'create', orderId: order.id, expectedRevision: order.revision, customerId: field(customer, 'Id'), freightProductId: field(freight, 'Id'), dieselProductId: field(diesel, 'Id') });
   assert.equal(duplicate.alreadyExists, true); assert.equal(duplicate.export.sales_order_id, lastExport.sales_order_id);

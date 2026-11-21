@@ -1,10 +1,10 @@
-import { IntegrationError, PowerOffice, draftPayload, field, invoiceState, money } from './core.mjs';
+import { IntegrationError, PowerOffice, draftPayload, field, invoiceState, money, withCustomerReference } from './core.mjs';
 
 const draftMismatch = 'Utkastet er opprettet, men sum i PowerOffice avviker. Kontroller utkastet før fakturering.';
 function draftState(draft, existing) {
   const id = field(draft, 'Id');
   if (!id) throw new IntegrationError('Uventet svar fra PowerOffice. Oppdater status før ny prøve.', 502);
-  const expected = money(existing.payload.SalesOrderLines.reduce((sum, line) => sum + line.ProductUnitPrice * line.Quantity, 0));
+  const expected = money(existing.payload.SalesOrderLines.filter(line => line.LineType !== 'Text').reduce((sum, line) => sum + line.ProductUnitPrice * line.Quantity, 0));
   const net = field(draft, 'NetAmount');
   const mismatch = net == null ? existing.error_message === draftMismatch : money(net) !== expected;
   return { state: 'draft', sales_order_id: id, sales_order_number: field(draft, 'SalesOrderNo'), error_message: mismatch ? draftMismatch : null };
@@ -56,14 +56,19 @@ export async function handleRequest(request, env, fetcher = fetch) {
     const order = visibleOrders[0];
     if (!order) throw new IntegrationError('Ordren finnes ikke eller er utilgjengelig.', 404);
     const query = `order_id=eq.${order.id}&environment=eq.${config.environment}`;
-    const save = async values => (await db(`poweroffice_exports?${query}`, 'PATCH', { ...values, updated_at: new Date().toISOString() }))[0];
+    const save = async (values, condition = '') => {
+      const [row] = await db(`poweroffice_exports?${query}${condition}`, 'PATCH', { ...values, updated_at: new Date().toISOString() });
+      if (!row) throw new IntegrationError('Overføringen har endret seg. Hent status på nytt.', 409);
+      return row;
+    };
     let existing = (await db(`poweroffice_exports?${query}`))[0];
     if (body.action === 'sync') {
       if (!existing) throw new IntegrationError('Ordren er ikke overført.');
       if (existing.state === 'creating' && Date.now() - Date.parse(existing.updated_at) < 120000) throw new IntegrationError('Overføringen pågår. Prøv igjen om litt.', 409);
-      const found = await po.findExport(existing.external_reference);
-      const values = found?.invoice ? invoiceState(found.invoice) : found?.draft ? draftState(found.draft, existing) : { state: 'missing', error_message: 'Fant ikke utkast eller faktura i PowerOffice. Kontroller før ny overføring.' };
-      return reply({ export: await save({ error_message: null, ...values, last_synced_at: new Date().toISOString() }) });
+      const found = await po.findExport(existing);
+      const values = found?.invoice ? invoiceState(found.invoice) : found?.draft ? draftState(found.draft, existing) : { state: 'missing', error_message: null };
+      const condition = '&state=eq.' + existing.state + '&updated_at=eq.' + encodeURIComponent(existing.updated_at);
+      return reply({ export: await save({ error_message: null, ...values, last_synced_at: new Date().toISOString() }, condition) });
     }
     if (existing && ['draft', 'invoiced', 'paid', 'partially_paid', 'overpaid', 'reversed'].includes(existing.state)) return reply({ export: existing, alreadyExists: true });
     if (Number(body.expectedRevision) !== Number(order.revision)) throw new IntegrationError('Ordren ble endret. Oppdater Cargo og prøv igjen.', 409);
@@ -71,7 +76,7 @@ export async function handleRequest(request, env, fetcher = fetch) {
     const payload = draftPayload(order, selection, config.environment);
     const [customer, freight, diesel] = await Promise.all([
       po.request(`/Customers/${selection.customerId}`), po.request(`/Products/${selection.freightProductId}`),
-      payload.SalesOrderLines.length > 1 ? po.request(`/Products/${selection.dieselProductId}`) : Promise.resolve(null)
+      payload.SalesOrderLines.filter(line => line.LineType === 'Normal').length > 1 ? po.request(`/Products/${selection.dieselProductId}`) : Promise.resolve(null)
     ]);
     if (field(customer, 'IsArchived') || field(customer, 'JobStop') || field(freight, 'IsArchived') || (diesel && field(diesel, 'IsArchived'))) throw new IntegrationError('Kunden eller produktet er sperret i PowerOffice.');
     if (field(customer, 'CurrencyCode') && field(customer, 'CurrencyCode') !== 'NOK') throw new IntegrationError('Denne versjonen støtter fakturagrunnlag i NOK.');
@@ -80,16 +85,22 @@ export async function handleRequest(request, env, fetcher = fetch) {
     if (!claim?.claimed) throw new IntegrationError('Overføringen pågår eller finnes allerede. Oppdater status.', 409);
     claimed = query;
     existing = claim.row;
-    const found = await po.findExport(existing.external_reference);
+    const found = await po.findExport(existing);
     let values;
     if (found?.invoice) values = invoiceState(found.invoice);
     else {
+      if (!found?.draft && existing.sales_order_id) {
+        if (!confirmedMissing) throw new IntegrationError('Hent status fra PowerOffice før du oppretter et nytt utkast.', 409);
+        const replacement = { ...payload, ExternalImportReference: existing.external_reference };
+        existing = await save({ payload: replacement, source_revision: order.revision, error_message: null });
+      }
       if (!found?.draft && existing.payload.CustomerId !== selection.customerId) {
         throw new IntegrationError('Tidligere overføring gjelder en annen kunde. Kontroller den i PowerOffice før nytt utkast.', 409);
       }
-      if (!found?.draft && existing.payload.CustomerReference !== payload.CustomerReference) {
+      const referenceLine = payload.SalesOrderLines.at(-1);
+      if (!found?.draft && ('CustomerReference' in existing.payload || !existing.payload.SalesOrderLines.some(line => line.LineType === 'Text' && line.Description === referenceLine.Description))) {
         if (!confirmedMissing) throw new IntegrationError('Kundereferansen er endret. Hent status fra PowerOffice før nytt forsøk.', 409);
-        existing = await save({ payload: { ...existing.payload, CustomerReference: payload.CustomerReference } });
+        existing = await save({ payload: withCustomerReference(existing.payload, String(order.customer_reference).trim()) });
       }
       const draft = found?.draft || await po.request('/SalesOrders/Complete', 'POST', existing.payload);
       values = draftState(draft, existing);

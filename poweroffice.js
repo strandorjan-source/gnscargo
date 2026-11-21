@@ -33,8 +33,14 @@ function installPowerOffice() {
     }
     await poLoadExports(); refreshPowerOffice();
   });
-  $('poOrder').onchange = () => { poMatchCustomer(); poPreview(); };
+  $('poOrder').onchange = async () => {
+    poMatchCustomer(); poPreview();
+    const previous = powerOffice.exports?.find(row => row.order_id === $('poOrder').value);
+    if (previous && ['draft', 'missing', 'uncertain'].includes(previous.state)) await $('poSync').onclick();
+  };
   $('poCustomer').onchange = poPreview;
+  $('poFreight').onchange = poPreview;
+  $('poDiesel').onchange = poPreview;
   $('poCreate').onclick = async () => poAction(async () => {
     const order = orders.find(o => o.id === $('poOrder').value);
     if (!order) throw new Error('Velg en Cargo-ordre.');
@@ -44,13 +50,21 @@ function installPowerOffice() {
     }
     const data = await poCall({ action: 'create', expectedEnvironment: powerOffice.options.environment, orderId: order.id, expectedRevision: order.revision, customerId: Number($('poCustomer').value), freightProductId: Number($('poFreight').value), dieselProductId: Number($('poDiesel').value) });
     await poLoadExports(); refreshPowerOffice();
-    note($('poMessage'), data.export.error_message || (data.alreadyExists ? 'Ordren er allerede overført. Eksisterende utkast/status er hentet.' : 'Fakturautkast opprettet i PowerOffice. Kontroller utkastet der før fakturering.'), !!data.export.error_message);
+    const status = data.export;
+    const message = status.state === 'draft' ? `Fakturautkast ${status.sales_order_number || ''} ligger i PowerOffice under Fakturaer → Utkast.` : 'Status er oppdatert fra PowerOffice.';
+    note($('poMessage'), status.error_message || message, !!status.error_message);
   });
   $('poSync').onclick = async () => poAction(async () => {
     if (!$('poOrder').value) throw new Error('Velg en Cargo-ordre.');
     const result = await poCall({ action: 'sync', expectedEnvironment: powerOffice.options.environment, orderId: $('poOrder').value });
     await poLoadExports(); refreshPowerOffice();
-    note($('poMessage'), result.export.error_message || 'Status er oppdatert fra PowerOffice.', !!result.export.error_message);
+    const status = result.export;
+    if (status.state === 'missing' && status.sales_order_number) {
+      const lines = (status.payload?.SalesOrderLines || []).filter(line => line.ProductId != null);
+      $('poFreight').value = String(lines[0]?.ProductId ?? '');
+      $('poDiesel').value = String(lines[1]?.ProductId ?? '');
+    }
+    note($('poMessage'), status.error_message || 'Status er oppdatert fra PowerOffice.', !!status.error_message);
   });
   ['month', 'reportScope', 'reportCustomer'].forEach(id => $(id).addEventListener('change', refreshPowerOffice));
   s.auth?.onAuthStateChange((event) => {
@@ -79,7 +93,7 @@ async function openBillingDraft(id) {
   }
   refreshPowerOffice();
   $('poOrder').value = id;
-  $('poOrder').onchange();
+  await $('poOrder').onchange();
   $('poCustomer').focus();
 }
 async function poCall(body) {
@@ -164,8 +178,14 @@ function poPreview() {
   $('poReference').textContent = customerReference ? 'Kundereferanse: ' + customerReference
     : canCreate ? 'Kundereferanse mangler. Velg «Endre» på ordren og legg inn kundereferansen før du oppretter utkast.'
     : order ? 'Kundereferanse mangler på Cargo-ordren.' : '';
-  $('poCreate').disabled = powerOffice.busy || !powerOffice.exports || !canCreate || !customerReference || !$('poCustomer').value;
+  const deleted = exported?.state === 'missing' && !!exported.sales_order_number;
+  const prices = order && customerReportPricing(order);
+  $('poCreate').textContent = deleted ? 'Opprett nytt utkast' : 'Opprett fakturautkast';
+  $('poCreate').disabled = powerOffice.busy || !powerOffice.exports || !canCreate || !customerReference || !$('poCustomer').value || !$('poFreight').value || (prices?.diesel > 0 && !$('poDiesel').value);
   $('poSync').disabled = powerOffice.busy || !exported;
-  $('poPreview').textContent = order ? `Frakt: ${nok(customerReportPricing(order).base)} · Diesel: ${nok(customerReportPricing(order).diesel)} · Til kunde: ${nok(order.customer_price)} ekskl. MVA. ${exported ? powerOfficeLabels[exported.state] || exported.state : ''}` : '';
+  let status = exported ? powerOfficeLabels[exported.state] || exported.state : '';
+  if (deleted) status = `Tidligere utkast ${exported.sales_order_number} ble ikke funnet i PowerOffice. Du kan nå opprette et nytt utkast.`;
+  if (exported?.state === 'draft' && exported.sales_order_number) status = `Utkast ${exported.sales_order_number} ligger i PowerOffice under Fakturaer → Utkast.`;
+  $('poPreview').textContent = order ? `Frakt: ${nok(prices.base)} · Diesel: ${nok(prices.diesel)} · Til kunde: ${nok(order.customer_price)} ekskl. MVA. ${status}` : '';
 }
 installPowerOffice();

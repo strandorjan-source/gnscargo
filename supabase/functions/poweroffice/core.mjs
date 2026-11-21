@@ -21,6 +21,13 @@ export function pricing(order) {
   }
   return { base, percent, diesel, total: money(base + diesel) };
 }
+export function withCustomerReference(payload, reference) {
+  const lines = payload.SalesOrderLines.filter(line => !(line.LineType === 'Text' && line.Description?.startsWith('Kundereferanse: ')));
+  lines.push({ LineType: 'Text', Description: 'Kundereferanse: ' + reference, SortOrder: lines.length + 1 });
+  const draft = { ...payload, SalesOrderLines: lines };
+  delete draft.CustomerReference;
+  return draft;
+}
 export function draftPayload(order, selection, environment) {
   if (order.status === 'cancelled') throw new IntegrationError('En kansellert ordre kan ikke overføres.');
   if (order.customer_invoice_sent) throw new IntegrationError('Ordren er allerede markert fakturert.');
@@ -35,7 +42,7 @@ export function draftPayload(order, selection, environment) {
   const route = [order.pickup_name, order.delivery_name].filter(Boolean).join(' → ');
   const lines = [{ ProductId: selection.freightProductId, Quantity: 1, ProductUnitPrice: p.base, Allowance: 0, SortOrder: 1, LineType: 'Normal', Description: `Frakt ${order.reference || order.order_number} · ${date} · ${route}`.slice(0, 250) }];
   if (p.diesel) lines.push({ ProductId: selection.dieselProductId, Quantity: 1, ProductUnitPrice: p.diesel, Allowance: 0, SortOrder: 2, LineType: 'Normal', Description: `Dieseltillegg ${p.percent} % av kr ${p.base.toFixed(2)}` });
-  return { CustomerId: selection.customerId, CurrencyCode: 'NOK', SalesOrderStatus: 'Draft', SalesOrderDate: date, CustomerReference: customerReference, ExternalImportReference: ref, ImportedOrderNo: Number(order.order_number), SalesOrderLines: lines };
+  return withCustomerReference({ CustomerId: selection.customerId, CurrencyCode: 'NOK', SalesOrderStatus: 'Draft', SalesOrderDate: date, ExternalImportReference: ref, ImportedOrderNo: Number(order.order_number), SalesOrderLines: lines }, customerReference);
 }
 export function invoiceState(invoice) {
   const rawBalance = field(invoice, 'Balance'), rawTotal = field(invoice, 'TotalPostedAmount');
@@ -94,13 +101,29 @@ export class PowerOffice {
     }
     throw new IntegrationError('For mange treff i PowerOffice. Avgrens utvalget.', 502);
   }
-  async findExport(reference) {
-    const q = `externalImportReferences=${encodeURIComponent(reference)}&onlyCreatedByCurrentIntegration=true`;
+  async findExport(existing) {
+    const q = `externalImportReferences=${encodeURIComponent(existing.external_reference)}&onlyCreatedByCurrentIntegration=true`;
     const invoices = await this.list('/OutgoingInvoices?' + q);
     if (invoices.length > 1) throw new IntegrationError('Flere fakturaer har samme Cargo-referanse. Kontroller PowerOffice.', 409);
     if (invoices.length) return { invoice: invoices[0] };
+    if (existing.invoice_id || existing.invoice_number) {
+      const filter = existing.invoice_id ? 'invoiceIds=' + encodeURIComponent(existing.invoice_id) : 'invoiceNos=' + encodeURIComponent(existing.invoice_number);
+      const saved = await this.list('/OutgoingInvoices?' + filter);
+      if (saved.length === 1 && String(field(saved[0], 'InvoiceNo')) === String(existing.invoice_number)) return { invoice: saved[0] };
+      throw new IntegrationError('Cargo har allerede registrert en faktura. Kontroller fakturanummeret i PowerOffice.', 409);
+    }
     const drafts = await this.list('/SalesOrders?' + q);
     if (drafts.length > 1) throw new IntegrationError('Flere utkast har samme Cargo-referanse. Kontroller PowerOffice.', 409);
-    return drafts.length ? { draft: drafts[0] } : null;
+    if (drafts.length) return { draft: drafts[0] };
+    if (!existing.sales_order_number) return null;
+    const number = encodeURIComponent(existing.sales_order_number);
+    const [byInvoice, byOrder] = await Promise.all([
+      this.list('/OutgoingInvoices?orderNos=' + number), this.list('/SalesOrders?salesOrderNos=' + number)
+    ]);
+    if (!byInvoice.length && !byOrder.length) return null;
+    if (byInvoice.length === 1 && String(field(byInvoice[0], 'OrderNo')) === String(existing.sales_order_number) &&
+        String(field(byInvoice[0], 'CustomerId')) === String(existing.payload.CustomerId)) return { invoice: byInvoice[0] };
+    if (!byInvoice.length && byOrder.length === 1 && String(field(byOrder[0], 'Id')) === String(existing.sales_order_id)) return { draft: byOrder[0] };
+    throw new IntegrationError('Ordrenummeret har et annet treff i PowerOffice. Kontroller det før ny overføring.', 409);
   }
 }
