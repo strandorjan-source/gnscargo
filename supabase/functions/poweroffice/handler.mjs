@@ -47,6 +47,10 @@ export async function handleRequest(request, env, fetcher = fetch) {
         customers: customers.filter(c => !field(c, 'IsArchived')).map(c => ({ id: field(c, 'Id'), number: field(c, 'Number'), name: field(c, 'Name'), org: field(c, 'OrganizationNumber') })),
         products: products.map(p => ({ id: field(p, 'Id'), code: field(p, 'Code'), name: field(p, 'Name'), account: field(p, 'StandardSalesAccount') })) });
     }
+    // Older Cargo tabs were deployed while the integration was demo-only.
+    if ((body.expectedEnvironment ?? 'demo') !== config.environment) {
+      throw new IntegrationError('PowerOffice-miljøet er endret. Oppdater siden og last inn PowerOffice på nytt.', 409);
+    }
     if (!/^[0-9a-f-]{36}$/i.test(body.orderId || '')) throw new IntegrationError('Ugyldig ordre.');
     const visibleOrders = await userDb(`orders?id=eq.${body.orderId}&select=*`);
     const order = visibleOrders[0];

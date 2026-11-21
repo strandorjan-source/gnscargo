@@ -42,13 +42,13 @@ function installPowerOffice() {
       poMatchCustomer();
       throw new Error('Kontroller kunden i PowerOffice før overføring.');
     }
-    const data = await poCall({ action: 'create', orderId: order.id, expectedRevision: order.revision, customerId: Number($('poCustomer').value), freightProductId: Number($('poFreight').value), dieselProductId: Number($('poDiesel').value) });
+    const data = await poCall({ action: 'create', expectedEnvironment: powerOffice.options.environment, orderId: order.id, expectedRevision: order.revision, customerId: Number($('poCustomer').value), freightProductId: Number($('poFreight').value), dieselProductId: Number($('poDiesel').value) });
     await poLoadExports(); refreshPowerOffice();
     note($('poMessage'), data.export.error_message || (data.alreadyExists ? 'Ordren er allerede overført. Eksisterende utkast/status er hentet.' : 'Fakturautkast opprettet i PowerOffice. Kontroller utkastet der før fakturering.'), !!data.export.error_message);
   });
   $('poSync').onclick = async () => poAction(async () => {
     if (!$('poOrder').value) throw new Error('Velg en Cargo-ordre.');
-    const result = await poCall({ action: 'sync', orderId: $('poOrder').value });
+    const result = await poCall({ action: 'sync', expectedEnvironment: powerOffice.options.environment, orderId: $('poOrder').value });
     await poLoadExports(); refreshPowerOffice();
     note($('poMessage'), result.export.error_message || 'Status er oppdatert fra PowerOffice.', !!result.export.error_message);
   });
