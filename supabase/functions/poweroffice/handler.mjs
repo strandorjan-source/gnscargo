@@ -75,6 +75,7 @@ export async function handleRequest(request, env, fetcher = fetch) {
     ]);
     if (field(customer, 'IsArchived') || field(customer, 'JobStop') || field(freight, 'IsArchived') || (diesel && field(diesel, 'IsArchived'))) throw new IntegrationError('Kunden eller produktet er sperret i PowerOffice.');
     if (field(customer, 'CurrencyCode') && field(customer, 'CurrencyCode') !== 'NOK') throw new IntegrationError('Denne versjonen støtter fakturagrunnlag i NOK.');
+    const confirmedMissing = existing?.state === 'missing' && !!existing.last_synced_at;
     const claim = await db('rpc/poweroffice_claim_export', 'POST', { p_order_id: order.id, p_environment: config.environment, p_user_id: user.id, p_revision: order.revision, p_snapshot: payload });
     if (!claim?.claimed) throw new IntegrationError('Overføringen pågår eller finnes allerede. Oppdater status.', 409);
     claimed = query;
@@ -85,6 +86,10 @@ export async function handleRequest(request, env, fetcher = fetch) {
     else {
       if (!found?.draft && existing.payload.CustomerId !== selection.customerId) {
         throw new IntegrationError('Tidligere overføring gjelder en annen kunde. Kontroller den i PowerOffice før nytt utkast.', 409);
+      }
+      if (!found?.draft && existing.payload.CustomerReference !== payload.CustomerReference) {
+        if (!confirmedMissing) throw new IntegrationError('Kundereferansen er endret. Hent status fra PowerOffice før nytt forsøk.', 409);
+        existing = await save({ payload: { ...existing.payload, CustomerReference: payload.CustomerReference } });
       }
       const draft = found?.draft || await po.request('/SalesOrders/Complete', 'POST', existing.payload);
       values = draftState(draft, existing);

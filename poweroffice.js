@@ -14,7 +14,7 @@ function installPowerOffice() {
     '<label>Kunde i PowerOffice<select id="poCustomer"><option value="">Velg kunde</option></select></label>' +
     '<label>Produkt for frakt<select id="poFreight"><option value="">Velg produkt</option></select></label>' +
     '<label>Produkt for dieseltillegg<select id="poDiesel"><option value="">Velg produkt</option></select></label></div>' +
-    '<p id="poPreview"></p><div class="actions"><button id="poCreate" type="button" class="btn blue">Opprett fakturautkast</button>' +
+    '<p id="poReference" class="hidden"></p><p id="poPreview"></p><div class="actions"><button id="poCreate" type="button" class="btn blue">Opprett fakturautkast</button>' +
     '<button id="poSync" type="button" class="btn white">Hent status fra PowerOffice</button></div></div>' +
     '<div id="poMessage" role="status" aria-live="polite"></div><div id="poHistory" style="overflow:auto"></div>';
   $('reportSummary').parentElement.append(panel);
@@ -57,6 +57,7 @@ function installPowerOffice() {
     if (event !== 'SIGNED_OUT') return;
     powerOffice.options = null; powerOffice.exports = null;
     $('poControls').classList.add('hidden'); $('poHistory').replaceChildren();
+    $('poReference').textContent = ''; $('poPreview').textContent = '';
     $('poMessage').replaceChildren(); $('powerOfficePanel').open = false;
     for (const id of ['poOrder','poCustomer','poFreight','poDiesel']) $(id).replaceChildren(new Option('Velg', ''));
   });
@@ -157,8 +158,13 @@ function poPreview() {
   const order = orders.find(o => o.id === $('poOrder').value);
   const exported = powerOffice.exports?.find(x => x.order_id === order?.id);
   const retryable = exported && ['uncertain', 'missing'].includes(exported.state);
-  $('poCreate').disabled = powerOffice.busy || !powerOffice.exports || !order || order.status === 'cancelled' ||
-    order.customer_invoice_sent || !$('poCustomer').value || (!!exported && !retryable);
+  const customerReference = String(order?.customer_reference ?? '').trim();
+  const canCreate = order && !order.customer_invoice_sent && order.status !== 'cancelled' && (!exported || retryable);
+  $('poReference').classList.toggle('hidden', !order);
+  $('poReference').textContent = customerReference ? 'Kundereferanse: ' + customerReference
+    : canCreate ? 'Kundereferanse mangler. Velg «Endre» på ordren og legg inn kundereferansen før du oppretter utkast.'
+    : order ? 'Kundereferanse mangler på Cargo-ordren.' : '';
+  $('poCreate').disabled = powerOffice.busy || !powerOffice.exports || !canCreate || !customerReference || !$('poCustomer').value;
   $('poSync').disabled = powerOffice.busy || !exported;
   $('poPreview').textContent = order ? `Frakt: ${nok(customerReportPricing(order).base)} · Diesel: ${nok(customerReportPricing(order).diesel)} · Til kunde: ${nok(order.customer_price)} ekskl. MVA. ${exported ? powerOfficeLabels[exported.state] || exported.state : ''}` : '';
 }

@@ -26,6 +26,8 @@ export function draftPayload(order, selection, environment) {
   if (order.customer_invoice_sent) throw new IntegrationError('Ordren er allerede markert fakturert.');
   if (!order.pickup_date && !order.pickup_at) throw new IntegrationError('Ordren mangler lastedato.');
   for (const k of ['customerId', 'freightProductId']) if (!Number.isSafeInteger(selection[k]) || selection[k] <= 0) throw new IntegrationError('Velg kunde og fraktprodukt i PowerOffice.');
+  const customerReference = String(order.customer_reference ?? '').trim();
+  if (!customerReference) throw new IntegrationError('Legg inn kundereferansen på Cargo-ordren før du oppretter fakturautkast.');
   const p = pricing(order);
   if (p.diesel && (!Number.isSafeInteger(selection.dieselProductId) || selection.dieselProductId <= 0)) throw new IntegrationError('Velg produkt for dieseltillegget.');
   const date = order.pickup_date || new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Oslo' }).format(new Date(order.pickup_at));
@@ -33,7 +35,7 @@ export function draftPayload(order, selection, environment) {
   const route = [order.pickup_name, order.delivery_name].filter(Boolean).join(' → ');
   const lines = [{ ProductId: selection.freightProductId, Quantity: 1, ProductUnitPrice: p.base, Allowance: 0, SortOrder: 1, LineType: 'Normal', Description: `Frakt ${order.reference || order.order_number} · ${date} · ${route}`.slice(0, 250) }];
   if (p.diesel) lines.push({ ProductId: selection.dieselProductId, Quantity: 1, ProductUnitPrice: p.diesel, Allowance: 0, SortOrder: 2, LineType: 'Normal', Description: `Dieseltillegg ${p.percent} % av kr ${p.base.toFixed(2)}` });
-  return { CustomerId: selection.customerId, CurrencyCode: 'NOK', SalesOrderStatus: 'Draft', SalesOrderDate: date, CustomerReference: String(order.customer_reference || '').slice(0, 100), ExternalImportReference: ref, ImportedOrderNo: Number(order.order_number), SalesOrderLines: lines };
+  return { CustomerId: selection.customerId, CurrencyCode: 'NOK', SalesOrderStatus: 'Draft', SalesOrderDate: date, CustomerReference: customerReference, ExternalImportReference: ref, ImportedOrderNo: Number(order.order_number), SalesOrderLines: lines };
 }
 export function invoiceState(invoice) {
   const rawBalance = field(invoice, 'Balance'), rawTotal = field(invoice, 'TotalPostedAmount');

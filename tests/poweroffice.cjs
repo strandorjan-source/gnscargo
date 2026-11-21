@@ -17,6 +17,11 @@ const root = path.join(__dirname, '..');
   assert.equal(payload.SalesOrderStatus, 'Draft'); assert.equal(payload.SalesOrderLines.length, 2);
   assert.equal(payload.SalesOrderLines[0].ProductUnitPrice, 40000); assert.equal(payload.SalesOrderLines[1].ProductUnitPrice, 3600);
   assert.equal(payload.CustomerReference, 'KUNDEREF'); assert.equal(payload.SalesOrderDate, '2026-10-12');
+  for (const ref of [null, undefined, '', '  \t']) {
+    assert.throws(() => draftPayload({ ...order, customer_reference: ref }, selection, 'production'), /kundereferans/i);
+  }
+  const longRef = 'PO-' + '7'.repeat(101);
+  assert.equal(draftPayload({ ...order, customer_reference: '  ' + longRef + '  ' }, selection, 'production').CustomerReference, longRef);
   assert.ok(!JSON.stringify(payload).includes('35000')); assert.ok(!JSON.stringify(payload).includes('PRIVATE')); assert.ok(!JSON.stringify(payload).includes('INTERNAL PHONE'));
   assert.throws(() => draftPayload({ ...order, customer_invoice_sent: true }, selection, 'demo'));
   assert.throws(() => draftPayload({ ...order, status: 'cancelled' }, selection, 'demo'));
@@ -75,6 +80,11 @@ const root = path.join(__dirname, '..');
   assert.equal(count, 0);
   config.environment = 'demo';
   assert.equal((await invoke({ ...create, expectedEnvironment: 'production' })).status, 409);
+  order.customer_reference = '   ';
+  assert.equal((await invoke({ ...create, CustomerReference: 'BROWSER-OVERRIDE' })).status, 400);
+  assert.equal(count, 0);
+  assert.equal(exported, undefined);
+  order.customer_reference = 'KUNDEREF';
   simulateLostResponse = true;
   assert.equal((await invoke(create)).status, 502); assert.equal(exported.state, 'uncertain'); assert.equal(count, 1);
   assert.equal((await invoke(create)).status, 200); assert.equal(exported.state, 'draft'); assert.equal(count, 1);
@@ -94,6 +104,21 @@ const root = path.join(__dirname, '..');
   assert.equal((await invoke({...create,customerId:11})).status,409);
   assert.equal(count,1);
   draft=originalDraft;await sync();
+
+  // A former failed snapshot may be missing its buyer reference. Reconcile
+  // first, then replace just the reference before retrying the same export.
+  draft = null;
+  exported.state = 'uncertain';
+  exported.payload.CustomerReference = '';
+  const initialExternalRef = exported.external_reference;
+  assert.equal((await invoke(create)).status, 409);
+  assert.equal(count, 1);
+  assert.equal((await sync()).state, 'missing');
+  assert.equal((await invoke(create)).status, 200);
+  assert.equal(draft.CustomerReference, 'KUNDEREF');
+  assert.equal(exported.payload.CustomerReference, 'KUNDEREF');
+  assert.equal(exported.external_reference, initialExternalRef);
+  assert.equal(count, 2);
 
   // Real DOM event handlers with the same module shipped to Cargo.
   const dom = new JSDOM('<section><input id="month"><select id="reportScope"><option value="billing">Til fakturering</option></select><select id="reportCustomer"></select><div id="reportSummary"></div></section>', { runScripts: 'outside-only' });
@@ -127,6 +152,12 @@ const root = path.join(__dirname, '..');
   assert.equal(w.document.getElementById('poSync').disabled,false);
   assert.equal(w.document.getElementById('poCreate').disabled,true);
   chooseOrder(order.id);
+  const referenceDetails=w.document.getElementById('poReference');
+  assert.match(referenceDetails.textContent,/Kundereferanse: KUNDEREF/);
+  w.testOrders[0].customer_reference='  ';w.refreshPowerOffice();
+  assert(w.document.getElementById('poCreate').disabled);assert.match(referenceDetails.textContent,/Kundereferanse mangler/);
+  w.testOrders[0].customer_reference='PO-007';w.refreshPowerOffice();
+  assert.equal(w.document.getElementById('poCreate').disabled,false);assert.match(referenceDetails.textContent,/PO-007/);
   const buyer=w.document.getElementById('poCustomer');
   buyer.value='11';w.refreshPowerOffice();assert.equal(buyer.value,'11','same buyer preserves a manual selection');
   buyer.value='10';w.testOrders[0].customer='Ukjent kunde';w.testOrders[0].revision++;
